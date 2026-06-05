@@ -18,6 +18,11 @@
 
 * { box-sizing: border-box; }
 
+/* Ensure the `hidden` attribute always wins over component display rules
+   (e.g. .auth-overlay/.modal-backdrop/.banner set display:flex, which would
+   otherwise override the user-agent [hidden]{display:none} rule). */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
