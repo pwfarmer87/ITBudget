@@ -7,6 +7,14 @@
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
+  <!-- Auth gate: login / first-run setup -->
+  <div class="auth-overlay" id="authOverlay" hidden>
+    <div class="auth-card">
+      <h1>IT Budget Tracker</h1>
+      <div id="authForms"></div>
+    </div>
+  </div>
+
   <header class="app-header">
     <div class="app-header__brand">
       <h1>IT Budget Tracker</h1>
@@ -17,13 +25,20 @@
         <span>Year</span>
         <select class="select" id="yearSelect"></select>
       </label>
-      <button class="btn btn--ghost" id="newYearBtn" title="Start a new fiscal year">+ New Year</button>
-      <button class="btn btn--ghost" id="editYearBtn" title="Edit this year's name and dates">Edit Year</button>
+      <button class="btn btn--ghost editor-only" id="newYearBtn" title="Start a new fiscal year">+ New Year</button>
+      <button class="btn btn--ghost editor-only" id="editYearBtn" title="Edit this year's name and dates">Edit Year</button>
       <span class="app-header__sep"></span>
       <span class="sync" id="syncStatus" title="Sync status">●</span>
       <button class="btn btn--ghost" id="exportBtn" title="Download a backup of all data">Export</button>
-      <button class="btn btn--ghost" id="importBtn" title="Restore data from a backup file">Import</button>
+      <button class="btn btn--ghost editor-only" id="importBtn" title="Restore data from a backup file">Import</button>
       <input type="file" id="importFile" accept="application/json" hidden />
+      <span class="app-header__sep" id="userSep" hidden></span>
+      <div class="user-area" id="userArea" hidden>
+        <span class="user-area__name" id="userName"></span>
+        <span class="role-badge" id="roleBadge"></span>
+        <button class="btn btn--ghost btn--sm" id="accountBtn" title="Account settings">Account</button>
+        <button class="btn btn--ghost btn--sm" id="logoutBtn">Log out</button>
+      </div>
     </div>
   </header>
 
@@ -32,6 +47,7 @@
     <button class="tabs__tab" data-tab="budget" role="tab">Budget Tracker</button>
     <button class="tabs__tab" data-tab="reports" role="tab">Reports</button>
     <button class="tabs__tab" data-tab="departments" role="tab">Other Departments</button>
+    <button class="tabs__tab admin-only" data-tab="users" role="tab" hidden>Users</button>
   </nav>
 
   <div class="banner" id="updateBanner" hidden></div>
@@ -65,7 +81,7 @@
           <button class="btn btn--ghost" id="collapseAllBtn">Collapse all</button>
         </div>
         <div class="toolbar__right">
-          <button class="btn btn--ghost" id="addCategoryBtn">+ Add Category</button>
+          <button class="btn btn--ghost editor-only" id="addCategoryBtn">+ Add Category</button>
         </div>
       </div>
       <div id="categories"></div>
@@ -107,7 +123,7 @@
       <div class="card">
         <div class="card__head">
           <h2>Other Department Budget Lines</h2>
-          <button class="btn btn--primary" id="addDeptBtn">+ Add Line</button>
+          <button class="btn btn--primary editor-only" id="addDeptBtn">+ Add Line</button>
         </div>
         <div class="card__body">
           <p class="muted">A reference list of budget lines owned by other departments. No spend or budget tracking — just a place to record what exists and surface things you may need to be aware of.</p>
@@ -123,6 +139,33 @@
                 </tr>
               </thead>
               <tbody id="deptRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- USERS (admin only) -->
+    <section class="panel" id="panel-users" role="tabpanel">
+      <div class="card">
+        <div class="card__head">
+          <h2>User Accounts</h2>
+          <button class="btn btn--primary" id="addUserBtn">+ Add User</button>
+        </div>
+        <div class="card__body">
+          <p class="muted">Manage who can sign in and what they can do. <strong>Admin</strong> manages users and edits the budget; <strong>Editor</strong> edits the budget; <strong>Viewer</strong> has read-only access.</p>
+          <div class="table-wrap">
+            <table class="dept-table">
+              <thead>
+                <tr>
+                  <th style="width:24%">Name</th>
+                  <th style="width:22%">Username</th>
+                  <th style="width:14%">Role</th>
+                  <th>Created</th>
+                  <th style="width:120px"></th>
+                </tr>
+              </thead>
+              <tbody id="userRows"></tbody>
             </table>
           </div>
         </div>

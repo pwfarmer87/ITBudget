@@ -88,21 +88,36 @@ node server.js          # or: npm start
   Local only*. Open viewers auto-refresh every ~10s so everyone stays in sync.
 - Configure the port with `PORT` (e.g. `PORT=8080 node server.js`).
 
-To host it for the team, run it on any machine/VM/container they can reach
-(behind your normal reverse proxy/VPN). Keep `data/` on persistent storage and
-back it up — it holds the budget.
+To host it for the team, run it on any machine/VM/container they can reach.
+Keep `data/` on persistent storage and back it up — it holds the budget **and**
+the user accounts.
 
-#### Optional shared password
+### Per-user login & roles
 
-Set `BUDGET_TOKEN` to require a shared secret:
+The server has real per-user accounts (passwords hashed with scrypt; httpOnly
+session cookies). There are three roles:
 
-```bash
-BUDGET_TOKEN=our-secret node server.js
-```
+| Role | Can do |
+| --- | --- |
+| **Admin** | Manage user accounts **and** edit the budget |
+| **Editor** | Edit the budget (categories, line items, expenses, years) |
+| **Viewer** | Read-only — see dashboards, budget, and reports; no editing |
 
-Then, in each browser once, run in the dev console:
-`localStorage.setItem('budget-token', 'our-secret')`. (For real internet-facing
-deployments, put it behind HTTPS and your existing SSO/reverse proxy.)
+- **First launch:** with no accounts yet, the app shows a one-time **setup
+  screen** to create the initial admin. (Alternatively, set `ADMIN_USER` and
+  `ADMIN_PASSWORD` when starting the server to bootstrap the first admin for
+  automated deploys.)
+- **Adding people:** an admin opens the **Users** tab to add/remove accounts,
+  assign roles, and reset passwords. (Accounts are admin-managed — there is no
+  open self-registration.) The last remaining admin can't be demoted or deleted.
+- **Account:** any user can change their own password via the **Account** button.
+- Read-only users simply don't see the edit controls, and the server also
+  enforces it (budget writes from a viewer are rejected).
+
+> **Deploy securely:** run behind HTTPS (a reverse proxy is fine) and start the
+> server with `COOKIE_SECURE=1` so the session cookie is marked `Secure`.
+> Sessions are held in memory, so restarting the server signs everyone out
+> (they just log back in); accounts and budget data persist on disk.
 
 ### Standalone mode (single user, no server)
 

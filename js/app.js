@@ -2,6 +2,12 @@
 
 let data; // loaded asynchronously in boot()
 
+// Auth state. In standalone mode (no backend) there is no user and full edit.
+let meUser = null; // current signed-in user, or null
+let canEdit = true; // editor or admin (true when standalone)
+let isAdminUser = false;
+let appStarted = false; // guard so polling starts only once
+
 /* ---------- Year helpers ---------- */
 
 function activeYear() {
@@ -220,10 +226,10 @@ function renderCategory(cat) {
         <div class="mini"><div class="mini__label">Budgeted</div><div class="mini__value">${money(t.budgeted)}</div></div>
         <div class="mini"><div class="mini__label">Actual</div><div class="mini__value">${money(t.actual)}</div></div>
         <div class="mini"><div class="mini__label">Remaining</div><div class="mini__value ${overCls}">${money(remaining)}</div></div>
-        <div class="category__actions">
+        ${canEdit ? `<div class="category__actions">
           <button class="icon-btn" data-action="edit-cat" data-cat="${cat.id}" title="Edit category">✎</button>
           <button class="icon-btn icon-btn--danger" data-action="del-cat" data-cat="${cat.id}" title="Delete category">🗑</button>
-        </div>
+        </div>` : ""}
       </div>
     </div>`;
 
@@ -240,10 +246,11 @@ function renderCategory(cat) {
 
   const rows = cat.lineItems.map((li) => renderLineItem(cat, li)).join("");
 
-  const addBtn = `
-    <div style="padding:10px 18px;">
-      <button class="btn--link" data-action="add-li" data-cat="${cat.id}">+ Add Line Item</button>
-    </div>`;
+  const addBtn = canEdit
+    ? `<div style="padding:10px 18px;">
+        <button class="btn--link" data-action="add-li" data-cat="${cat.id}">+ Add Line Item</button>
+      </div>`
+    : "";
 
   return `
     <div class="category" data-cat="${cat.id}">
@@ -274,8 +281,8 @@ function renderLineItem(cat, li) {
       <div class="num">${money(actual)}${count ? ` <span class="muted">(${count})</span>` : ""}</div>
       <div class="num ${overCls}">${money(remaining)}</div>
       <div class="lineitem__actions">
-        <button class="icon-btn" data-action="edit-li" data-cat="${cat.id}" data-li="${li.id}" title="Edit line item">✎</button>
-        <button class="icon-btn icon-btn--danger" data-action="del-li" data-cat="${cat.id}" data-li="${li.id}" title="Delete line item">🗑</button>
+        ${canEdit ? `<button class="icon-btn" data-action="edit-li" data-cat="${cat.id}" data-li="${li.id}" title="Edit line item">✎</button>
+        <button class="icon-btn icon-btn--danger" data-action="del-li" data-cat="${cat.id}" data-li="${li.id}" title="Delete line item">🗑</button>` : ""}
       </div>
     </div>`;
 
@@ -294,22 +301,23 @@ function renderSubitems(li, isOpen) {
           <div class="num">${money(s.actual)}</div>
           <div class="subitem__note">${escapeHtml(s.note || "")}</div>
           <div class="lineitem__actions">
-            <button class="icon-btn" data-action="edit-sub" data-li="${li.id}" data-sub="${s.id}" title="Edit">✎</button>
-            <button class="icon-btn icon-btn--danger" data-action="del-sub" data-li="${li.id}" data-sub="${s.id}" title="Delete">🗑</button>
+            ${canEdit ? `<button class="icon-btn" data-action="edit-sub" data-li="${li.id}" data-sub="${s.id}" title="Edit">✎</button>
+            <button class="icon-btn icon-btn--danger" data-action="del-sub" data-li="${li.id}" data-sub="${s.id}" title="Delete">🗑</button>` : ""}
           </div>
         </div>`
         )
         .join("")
     : `<div class="subitems__empty">No expenses entered yet.</div>`;
 
-  // Quick-add inline form
-  const addForm = `
-    <form class="subitem-add" data-action="quick-add-sub" data-li="${li.id}">
-      <input class="input" name="name" placeholder="Expense (e.g. May invoice)" required />
-      <input class="input num" name="actual" type="number" step="0.01" placeholder="Cost" required />
-      <input class="input" name="note" placeholder="Note (optional)" />
-      <button class="btn btn--primary btn--sm" type="submit">Add</button>
-    </form>`;
+  // Quick-add inline form (editors only)
+  const addForm = canEdit
+    ? `<form class="subitem-add" data-action="quick-add-sub" data-li="${li.id}">
+        <input class="input" name="name" placeholder="Expense (e.g. May invoice)" required />
+        <input class="input num" name="actual" type="number" step="0.01" placeholder="Cost" required />
+        <input class="input" name="note" placeholder="Note (optional)" />
+        <button class="btn btn--primary btn--sm" type="submit">Add</button>
+      </form>`
+    : "";
 
   const headerRow = subs.length
     ? `<div class="subitem-row is-header">
@@ -925,8 +933,8 @@ function renderDepartments() {
         <td class="mono">${escapeHtml(d.budgetNumber || "")}</td>
         <td>${escapeHtml(d.note || "")}</td>
         <td>
-          <button class="icon-btn" data-dept-action="edit" data-id="${d.id}" title="Edit">✎</button>
-          <button class="icon-btn icon-btn--danger" data-dept-action="del" data-id="${d.id}" title="Delete">🗑</button>
+          ${canEdit ? `<button class="icon-btn" data-dept-action="edit" data-id="${d.id}" title="Edit">✎</button>
+          <button class="icon-btn icon-btn--danger" data-dept-action="del" data-id="${d.id}" title="Delete">🗑</button>` : ""}
         </td>
       </tr>`
     )
@@ -1013,12 +1021,13 @@ function setupTabs() {
       document.querySelectorAll(".panel").forEach((p) => p.classList.remove("is-active"));
       tab.classList.add("is-active");
       document.getElementById("panel-" + tab.dataset.tab).classList.add("is-active");
+      if (tab.dataset.tab === "users") renderUsers();
     });
   });
 }
 
 function setupHeader() {
-  refreshShell();
+  // Note: refreshShell() is called from startApp() once data has loaded.
 
   document.getElementById("yearSelect").onchange = (e) => {
     data.activeYearId = e.target.value;
@@ -1052,6 +1061,9 @@ function setupHeader() {
 
   document.getElementById("addCategoryBtn").onclick = () => openCategoryModal(null);
   document.getElementById("addDeptBtn").onclick = () => openDeptModal(null);
+  document.getElementById("addUserBtn").onclick = () => openUserModal(null);
+  document.getElementById("accountBtn").onclick = openAccountModal;
+  document.getElementById("logoutBtn").onclick = doLogout;
 
   document.getElementById("expandAllBtn").onclick = () => {
     activeYear().categories.forEach((c) => c.lineItems.forEach((l) => expanded.add(l.id)));
@@ -1155,13 +1167,289 @@ function startPolling() {
   }, 10000);
 }
 
-async function boot() {
-  Storage.setHandlers({ status: setSyncStatus, conflict: onConflict });
+/* ============================================================
+ * AUTH UI: login / setup overlay, roles, account, user admin
+ * ============================================================ */
+
+function hideModalNow() {
+  document.getElementById("modalBackdrop").hidden = true;
+  document.getElementById("modal").innerHTML = "";
+}
+
+function hideAuthOverlay() {
+  const o = document.getElementById("authOverlay");
+  o.hidden = true;
+  document.getElementById("authForms").innerHTML = "";
+}
+
+function showAuthError(msg) {
+  const el = document.getElementById("authError");
+  if (el) {
+    el.textContent = msg;
+    el.hidden = false;
+  }
+}
+
+function showLogin() {
+  const overlay = document.getElementById("authOverlay");
+  overlay.hidden = false;
+  document.getElementById("authForms").innerHTML = `
+    <p class="auth-sub">Sign in to continue.</p>
+    <div class="auth-error" id="authError" hidden></div>
+    <form id="loginForm">
+      <div class="field"><label>Username</label><input class="input" id="lg-user" autocomplete="username" /></div>
+      <div class="field"><label>Password</label><input class="input" id="lg-pass" type="password" autocomplete="current-password" /></div>
+      <button class="btn btn--primary" type="submit">Sign in</button>
+    </form>`;
+  document.getElementById("loginForm").onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const { user } = await Auth.login(
+        document.getElementById("lg-user").value.trim(),
+        document.getElementById("lg-pass").value
+      );
+      await onAuthenticated(user);
+    } catch (err) {
+      showAuthError(err.message);
+    }
+  };
+  document.getElementById("lg-user").focus();
+}
+
+function showSetup() {
+  const overlay = document.getElementById("authOverlay");
+  overlay.hidden = false;
+  document.getElementById("authForms").innerHTML = `
+    <p class="auth-sub">Welcome! Create the first administrator account.</p>
+    <div class="auth-error" id="authError" hidden></div>
+    <form id="setupForm">
+      <div class="field"><label>Your name</label><input class="input" id="su-name" autocomplete="name" /></div>
+      <div class="field"><label>Username</label><input class="input" id="su-user" autocomplete="username" /></div>
+      <div class="field"><label>Password</label><input class="input" id="su-pass" type="password" autocomplete="new-password" placeholder="At least 8 characters" /></div>
+      <div class="field"><label>Confirm password</label><input class="input" id="su-pass2" type="password" autocomplete="new-password" /></div>
+      <button class="btn btn--primary" type="submit">Create admin &amp; continue</button>
+    </form>
+    <div class="auth-foot">This screen appears only once, on first launch.</div>`;
+  document.getElementById("setupForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const pass = document.getElementById("su-pass").value;
+    if (pass.length < 8) return showAuthError("Password must be at least 8 characters.");
+    if (pass !== document.getElementById("su-pass2").value) return showAuthError("Passwords do not match.");
+    try {
+      const { user } = await Auth.setup({
+        username: document.getElementById("su-user").value.trim(),
+        password: pass,
+        displayName: document.getElementById("su-name").value.trim(),
+      });
+      await onAuthenticated(user);
+    } catch (err) {
+      showAuthError(err.message);
+    }
+  };
+  document.getElementById("su-name").focus();
+}
+
+function applyRoleUI() {
+  document.querySelectorAll(".editor-only").forEach((el) => {
+    el.style.display = canEdit ? "" : "none";
+  });
+  document.querySelectorAll(".admin-only").forEach((el) => {
+    el.hidden = !isAdminUser;
+  });
+  const userArea = document.getElementById("userArea");
+  const userSep = document.getElementById("userSep");
+  if (meUser) {
+    userArea.hidden = false;
+    userSep.hidden = false;
+    document.getElementById("userName").textContent = meUser.displayName;
+    const rb = document.getElementById("roleBadge");
+    rb.textContent = meUser.role;
+    rb.className = "role-badge is-" + meUser.role;
+  } else {
+    userArea.hidden = true;
+    userSep.hidden = true;
+  }
+}
+
+async function onAuthenticated(user) {
+  meUser = user;
+  canEdit = user.role === "editor" || user.role === "admin";
+  isAdminUser = user.role === "admin";
+  hideAuthOverlay();
+  applyRoleUI();
+  await startApp();
+}
+
+async function doLogout() {
+  try {
+    await Auth.logout();
+  } catch {
+    /* ignore */
+  }
+  meUser = null;
+  canEdit = false;
+  isAdminUser = false;
+  applyRoleUI();
+  // Switch to the Dashboard tab so we don't return into an admin-only panel.
+  document.querySelector('.tabs__tab[data-tab="dashboard"]').click();
+  showLogin();
+}
+
+async function startApp() {
   data = await Storage.load();
+  if (!data) return; // not authenticated; overlay is showing
+  refreshShell();
+  renderAll();
+  if (!appStarted) {
+    startPolling();
+    appStarted = true;
+  }
+}
+
+/* ---------- Account (change own password) ---------- */
+
+function openAccountModal() {
+  const body = `
+    <div class="field"><label>Current password</label><input class="input" id="ac-cur" type="password" autocomplete="current-password" /></div>
+    <div class="field"><label>New password</label><input class="input" id="ac-new" type="password" autocomplete="new-password" placeholder="At least 8 characters" /></div>
+    <div class="field"><label>Confirm new password</label><input class="input" id="ac-new2" type="password" autocomplete="new-password" /></div>`;
+  openModal("Change Password", body, (modal) => {
+    const cur = modal.querySelector("#ac-cur").value;
+    const nw = modal.querySelector("#ac-new").value;
+    if (nw.length < 8) {
+      alert("New password must be at least 8 characters.");
+      return false;
+    }
+    if (nw !== modal.querySelector("#ac-new2").value) {
+      alert("New passwords do not match.");
+      return false;
+    }
+    Auth.changePassword(cur, nw)
+      .then(() => {
+        hideModalNow();
+        alert("Password changed.");
+      })
+      .catch((err) => alert(err.message));
+    return false; // keep open until the async call resolves
+  });
+}
+
+/* ---------- User management (admin) ---------- */
+
+function roleOptions(selected) {
+  return ["admin", "editor", "viewer"]
+    .map((r) => `<option value="${r}" ${r === selected ? "selected" : ""}>${r[0].toUpperCase() + r.slice(1)}</option>`)
+    .join("");
+}
+
+async function renderUsers() {
+  if (!isAdminUser) return;
+  const tbody = document.getElementById("userRows");
+  let list;
+  try {
+    list = (await Users.list()).users;
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" class="dept-empty">${escapeHtml(err.message)}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = list
+    .map(
+      (u) => `
+      <tr>
+        <td>${escapeHtml(u.displayName)}${u.id === meUser.id ? ' <span class="muted">(you)</span>' : ""}</td>
+        <td class="mono">${escapeHtml(u.username)}</td>
+        <td><span class="role-badge is-${u.role}">${u.role}</span></td>
+        <td>${u.createdAt ? new Date(u.createdAt).toLocaleDateString() : ""}</td>
+        <td>
+          <button class="icon-btn" data-user-action="edit" data-id="${u.id}" title="Edit">✎</button>
+          <button class="icon-btn icon-btn--danger" data-user-action="del" data-id="${u.id}" title="Delete">🗑</button>
+        </td>
+      </tr>`
+    )
+    .join("");
+
+  tbody.querySelectorAll("[data-user-action]").forEach((el) => {
+    el.addEventListener("click", () => {
+      const u = list.find((x) => x.id === el.dataset.id);
+      if (el.dataset.userAction === "edit") openUserModal(u);
+      else deleteUser(u);
+    });
+  });
+}
+
+function openUserModal(user) {
+  const editing = !!user;
+  const body = `
+    <div class="field"><label>Name</label><input class="input" id="us-name" value="${escapeHtml(editing ? user.displayName : "")}" /></div>
+    <div class="field"><label>Username</label><input class="input" id="us-user" value="${escapeHtml(editing ? user.username : "")}" ${editing ? "disabled" : ""} placeholder="letters, numbers, . _ -" /></div>
+    <div class="field"><label>Role</label><select class="select" id="us-role">${roleOptions(editing ? user.role : "viewer")}</select></div>
+    <div class="field"><label>${editing ? "Reset password (optional)" : "Password"}</label><input class="input" id="us-pass" type="password" autocomplete="new-password" placeholder="${editing ? "Leave blank to keep current" : "At least 8 characters"}" /></div>`;
+
+  openModal(editing ? "Edit User" : "Add User", body, (modal) => {
+    const displayName = modal.querySelector("#us-name").value.trim();
+    const role = modal.querySelector("#us-role").value;
+    const password = modal.querySelector("#us-pass").value;
+
+    let promise;
+    if (editing) {
+      const payload = { displayName, role };
+      if (password) payload.password = password;
+      promise = Users.update(user.id, payload);
+    } else {
+      const username = modal.querySelector("#us-user").value.trim();
+      promise = Users.create({ username, password, displayName, role });
+    }
+
+    promise
+      .then(async () => {
+        hideModalNow();
+        // If we changed our own role, refresh our permissions/UI.
+        if (editing && user.id === meUser.id && role !== meUser.role) {
+          meUser = { ...meUser, role };
+          canEdit = role === "editor" || role === "admin";
+          isAdminUser = role === "admin";
+          applyRoleUI();
+          renderAll();
+        }
+        renderUsers();
+      })
+      .catch((err) => alert(err.message));
+    return false; // keep modal open until the async call resolves
+  });
+}
+
+function deleteUser(user) {
+  if (!confirm(`Delete user "${user.displayName}" (${user.username})?`)) return;
+  Users.remove(user.id)
+    .then(() => renderUsers())
+    .catch((err) => alert(err.message));
+}
+
+/* ---------- Boot ---------- */
+
+async function boot() {
+  Storage.setHandlers({ status: setSyncStatus, conflict: onConflict, authRequired: showLogin });
   setupTabs();
   setupHeader();
-  renderAll();
-  startPolling();
+
+  let status;
+  try {
+    status = await Auth.status();
+  } catch {
+    status = null; // no backend reachable -> standalone single-user mode
+  }
+
+  if (status === null) {
+    meUser = null;
+    canEdit = true;
+    isAdminUser = false;
+    applyRoleUI();
+    await startApp();
+    return;
+  }
+  if (status.setupRequired) return showSetup();
+  if (!status.user) return showLogin();
+  await onAuthenticated(status.user);
 }
 
 boot();

@@ -102,7 +102,7 @@ const Storage = {
   _dirty: false,
   _timer: null,
   _latest: null, // most recent data snapshot to push
-  _handlers: { status: () => {}, conflict: () => {}, remote: () => {} },
+  _handlers: { status: () => {}, conflict: () => {}, remote: () => {}, authRequired: () => {} },
 
   setHandlers(h) {
     Object.assign(this._handlers, h);
@@ -122,7 +122,12 @@ const Storage = {
 
   async load() {
     try {
-      const res = await fetch(API, { headers: tokenHeader() });
+      const res = await fetch(API, { credentials: "same-origin" });
+      if (res.status === 401) {
+        this._online = true;
+        this._handlers.authRequired();
+        throw new Error("auth");
+      }
       if (!res.ok) throw new Error("HTTP " + res.status);
       const env = await res.json();
       this._online = true;
@@ -139,7 +144,8 @@ const Storage = {
       const d = defaultData();
       const put = await fetch(API, {
         method: "PUT",
-        headers: { "Content-Type": "application/json", ...tokenHeader() },
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rev: this._rev, data: d }),
       });
       if (put.status === 200) {
@@ -158,6 +164,10 @@ const Storage = {
       this._setStatus("synced");
       return d;
     } catch (err) {
+      if (err && err.message === "auth") {
+        // A backend is present but we're not signed in — let the app show login.
+        return null;
+      }
       // No backend (e.g. opened as a file) — fall back to local storage.
       this._online = false;
       this._setStatus("local");
@@ -195,9 +205,15 @@ const Storage = {
     try {
       const res = await fetch(API, {
         method: "PUT",
-        headers: { "Content-Type": "application/json", ...tokenHeader() },
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rev: this._rev, data: snapshot }),
       });
+      if (res.status === 401) {
+        this._setStatus("conflict");
+        this._handlers.authRequired();
+        return;
+      }
       if (res.status === 200) {
         this._rev = (await res.json()).rev;
         this._setStatus(this._dirty ? "saving" : "synced");
@@ -224,7 +240,11 @@ const Storage = {
   async poll() {
     if (!this._online || this._saving || this._dirty) return null;
     try {
-      const res = await fetch(API, { headers: tokenHeader() });
+      const res = await fetch(API, { credentials: "same-origin" });
+      if (res.status === 401) {
+        this._handlers.authRequired();
+        return null;
+      }
       if (!res.ok) throw new Error("HTTP " + res.status);
       const env = await res.json();
       if ((env.rev || 0) !== this._rev && env.data) {
@@ -275,13 +295,66 @@ const Storage = {
   },
 };
 
-// Optional shared-secret support: set localStorage 'budget-token' to match the
-// server's BUDGET_TOKEN if the backend requires it.
-function tokenHeader() {
+/* ============================================================
+ * Auth + user management API client
+ * ============================================================ */
+
+async function apiJson(url, options = {}) {
+  const res = await fetch(url, {
+    credentials: "same-origin",
+    headers: options.body ? { "Content-Type": "application/json" } : undefined,
+    ...options,
+  });
+  let body = null;
   try {
-    const t = localStorage.getItem("budget-token");
-    return t ? { "x-budget-token": t } : {};
+    body = await res.json();
   } catch {
-    return {};
+    /* no body */
   }
+  if (!res.ok) {
+    const msg = (body && body.error) || "Request failed (" + res.status + ")";
+    const err = new Error(msg);
+    err.status = res.status;
+    throw err;
+  }
+  return body;
 }
+
+const Auth = {
+  status() {
+    return apiJson("/api/auth/status");
+  },
+  setup(payload) {
+    return apiJson("/api/auth/setup", { method: "POST", body: JSON.stringify(payload) });
+  },
+  login(username, password) {
+    return apiJson("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) });
+  },
+  logout() {
+    return apiJson("/api/auth/logout", { method: "POST", body: "{}" });
+  },
+  changePassword(currentPassword, newPassword) {
+    return apiJson("/api/auth/password", {
+      method: "POST",
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+  },
+};
+
+const Users = {
+  list() {
+    return apiJson("/api/users");
+  },
+  create(payload) {
+    return apiJson("/api/users", { method: "POST", body: JSON.stringify(payload) });
+  },
+  update(id, payload) {
+    return apiJson("/api/users/" + encodeURIComponent(id), {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+  },
+  remove(id) {
+    return apiJson("/api/users/" + encodeURIComponent(id), { method: "DELETE" });
+  },
+};

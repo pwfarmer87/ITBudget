@@ -65,6 +65,44 @@ h1, h2, h3 { margin: 0; font-weight: 600; }
 .banner.is-conflict { background: var(--red-bg); color: var(--red); border-bottom-color: #f3c2c2; }
 .banner .btn { border-color: currentColor; }
 
+/* User area in header */
+.user-area { display: flex; align-items: center; gap: 8px; }
+.user-area__name { font-size: 13px; font-weight: 500; }
+.role-badge {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
+  padding: 2px 7px; border-radius: 11px; font-weight: 600;
+  background: #eef2f8; color: #475569;
+}
+.role-badge.is-admin { background: #ede9fe; color: #6d28d9; }
+.role-badge.is-editor { background: #dbeafe; color: #1d4ed8; }
+.role-badge.is-viewer { background: #f1f5f9; color: #64748b; }
+
+/* Auth overlay (login / setup) */
+.auth-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: linear-gradient(160deg, #1e293b, #0f172a);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.auth-card {
+  background: var(--surface); border-radius: 14px; width: 100%; max-width: 380px;
+  padding: 28px; box-shadow: 0 24px 60px rgba(0,0,0,.35);
+}
+.auth-card h1 { font-size: 20px; margin-bottom: 4px; }
+.auth-card .auth-sub { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+.auth-card .field label { color: var(--text); }
+.auth-card .btn--primary { width: 100%; padding: 10px; justify-content: center; margin-top: 4px; }
+.auth-error {
+  background: var(--red-bg); color: var(--red); font-size: 13px;
+  padding: 9px 11px; border-radius: 7px; margin-bottom: 14px;
+}
+.auth-foot { font-size: 12px; color: var(--muted); margin-top: 16px; text-align: center; }
+
+/* Read-only hint */
+.readonly-pill {
+  display: inline-block; font-size: 11px; color: var(--amber);
+  background: var(--amber-bg); padding: 2px 8px; border-radius: 11px; margin-left: 8px;
+}
+
 /* Tabs */
 .tabs {
   display: flex;
