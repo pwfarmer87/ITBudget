@@ -151,10 +151,20 @@
       <div class="card">
         <div class="card__head">
           <h2>Budget Activity</h2>
-          <button class="btn btn--ghost" id="refreshActivityBtn">Refresh</button>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn--ghost" id="exportAuditBtn">Export CSV</button>
+            <button class="btn btn--ghost" id="refreshActivityBtn">Refresh</button>
+          </div>
         </div>
         <div class="card__body">
           <p class="muted">A history of changes to the budget — who changed what, and when. Most recent first.</p>
+          <div class="filter-bar">
+            <input class="input" id="actSearch" placeholder="Search changes…" />
+            <select class="select" id="actUser"><option value="">All users</option></select>
+            <label class="filter-bar__date">From <input class="input" id="actFrom" type="date" /></label>
+            <label class="filter-bar__date">To <input class="input" id="actTo" type="date" /></label>
+            <span class="filter-bar__count muted" id="actCount"></span>
+          </div>
           <div id="activityList"></div>
         </div>
       </div>
@@ -173,11 +183,12 @@
             <table class="dept-table">
               <thead>
                 <tr>
-                  <th style="width:24%">Name</th>
-                  <th style="width:22%">Username</th>
-                  <th style="width:14%">Role</th>
+                  <th style="width:20%">Name</th>
+                  <th style="width:16%">Username</th>
+                  <th style="width:24%">Email</th>
+                  <th style="width:12%">Role</th>
                   <th>Created</th>
-                  <th style="width:120px"></th>
+                  <th style="width:110px"></th>
                 </tr>
               </thead>
               <tbody id="userRows"></tbody>

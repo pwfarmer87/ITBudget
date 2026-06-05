@@ -221,6 +221,7 @@ function renderCategory(cat) {
       <div>
         <div class="category__title">${escapeHtml(cat.name)}</div>
         <div class="category__num">${escapeHtml(cat.budgetNumber)}</div>
+        ${cat.owner ? `<div class="category__owner">Owner: ${escapeHtml(cat.owner)}</div>` : ""}
       </div>
       <div class="category__totals">
         <div class="mini"><div class="mini__label">Budgeted</div><div class="mini__value">${money(t.budgeted)}</div></div>
@@ -497,16 +498,22 @@ function openCategoryModal(catId) {
     <div class="field">
       <label>Budget Number</label>
       <input class="input" id="f-num" value="${escapeHtml(cat ? cat.budgetNumber : "")}" placeholder="1.1.65.6500.0000.0000" />
+    </div>
+    <div class="field">
+      <label>Owner</label>
+      <input class="input" id="f-owner" value="${escapeHtml(cat ? cat.owner || "" : "")}" placeholder="Who owns this budget? (name or email)" />
     </div>`;
   openModal(cat ? "Edit Category" : "Add Category", body, (modal) => {
     const name = modal.querySelector("#f-name").value.trim();
     const num = modal.querySelector("#f-num").value.trim();
+    const owner = modal.querySelector("#f-owner").value.trim();
     if (!name) return false;
     if (cat) {
       cat.name = name;
       cat.budgetNumber = num;
+      cat.owner = owner;
     } else {
-      activeYear().categories.push({ id: uid(), key: genKey(), name, budgetNumber: num, lineItems: [] });
+      activeYear().categories.push({ id: uid(), key: genKey(), name, budgetNumber: num, owner, lineItems: [] });
     }
     commit();
     renderAll();
@@ -633,6 +640,7 @@ function carryForwardCategories(sourceYear, copyBudgets) {
     key: cat.key,
     name: cat.name,
     budgetNumber: cat.budgetNumber,
+    owner: cat.owner || "",
     lineItems: cat.lineItems.map((li) => ({
       id: uid(),
       key: li.key,
@@ -1066,6 +1074,11 @@ function setupHeader() {
   document.getElementById("accountBtn").onclick = openAccountModal;
   document.getElementById("logoutBtn").onclick = doLogout;
   document.getElementById("refreshActivityBtn").onclick = renderActivity;
+  document.getElementById("exportAuditBtn").onclick = exportAuditCsv;
+  document.getElementById("actSearch").oninput = applyActivityFilters;
+  document.getElementById("actUser").onchange = applyActivityFilters;
+  document.getElementById("actFrom").onchange = applyActivityFilters;
+  document.getElementById("actTo").onchange = applyActivityFilters;
 
   document.getElementById("expandAllBtn").onclick = () => {
     activeYear().categories.forEach((c) => c.lineItems.forEach((l) => expanded.add(l.id)));
@@ -1240,7 +1253,9 @@ function showLogin() {
       <div class="field"><label>Password</label><input class="input" id="lg-pass" type="password" autocomplete="current-password" /></div>
       <label class="remember-row"><input type="checkbox" id="lg-remember" /> Remember me on this device</label>
       <button class="btn btn--primary" type="submit">Sign in</button>
-    </form>`;
+    </form>
+    <div class="auth-foot"><button class="btn--link" id="forgotLink" type="button">Forgot password?</button></div>`;
+  document.getElementById("forgotLink").onclick = showForgot;
   document.getElementById("loginForm").onsubmit = async (e) => {
     e.preventDefault();
     try {
@@ -1265,6 +1280,7 @@ function showSetup() {
     <div class="auth-error" id="authError" hidden></div>
     <form id="setupForm">
       <div class="field"><label>Your name</label><input class="input" id="su-name" autocomplete="name" /></div>
+      <div class="field"><label>Email <span class="muted">(for password resets)</span></label><input class="input" id="su-email" type="email" autocomplete="email" /></div>
       <div class="field"><label>Username</label><input class="input" id="su-user" autocomplete="username" /></div>
       <div class="field"><label>Password</label><input class="input" id="su-pass" type="password" autocomplete="new-password" placeholder="At least 10 characters" />${strengthMeterHtml("su-meter")}</div>
       <div class="field"><label>Confirm password</label><input class="input" id="su-pass2" type="password" autocomplete="new-password" /></div>
@@ -1282,6 +1298,7 @@ function showSetup() {
         username: document.getElementById("su-user").value.trim(),
         password: pass,
         displayName: document.getElementById("su-name").value.trim(),
+        email: document.getElementById("su-email").value.trim(),
         remember: true,
       });
       await onAuthenticated(user);
@@ -1290,6 +1307,67 @@ function showSetup() {
     }
   };
   document.getElementById("su-name").focus();
+}
+
+function showForgot() {
+  const overlay = document.getElementById("authOverlay");
+  overlay.hidden = false;
+  document.getElementById("authForms").innerHTML = `
+    <p class="auth-sub">Enter your username or email and we'll send a reset link.</p>
+    <div class="auth-error" id="authError" hidden></div>
+    <div class="auth-ok" id="authOk" hidden></div>
+    <form id="forgotForm">
+      <div class="field"><label>Username or email</label><input class="input" id="fg-id" autocomplete="username" /></div>
+      <button class="btn btn--primary" type="submit">Send reset link</button>
+    </form>
+    <div class="auth-foot"><button class="btn--link" id="backToLogin" type="button">Back to sign in</button></div>`;
+  document.getElementById("backToLogin").onclick = showLogin;
+  document.getElementById("forgotForm").onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await Auth.forgot(document.getElementById("fg-id").value.trim());
+      const ok = document.getElementById("authOk");
+      ok.textContent = "If that account exists, a reset link has been sent. Check your email.";
+      ok.hidden = false;
+      document.getElementById("authError").hidden = true;
+    } catch (err) {
+      showAuthError(err.message);
+    }
+  };
+  document.getElementById("fg-id").focus();
+}
+
+function showReset(token) {
+  const overlay = document.getElementById("authOverlay");
+  overlay.hidden = false;
+  document.getElementById("authForms").innerHTML = `
+    <p class="auth-sub">Choose a new password.</p>
+    <div class="auth-error" id="authError" hidden></div>
+    <form id="resetForm">
+      <div class="field"><label>New password</label><input class="input" id="rs-pass" type="password" autocomplete="new-password" placeholder="At least 10 characters" />${strengthMeterHtml("rs-meter")}</div>
+      <div class="field"><label>Confirm new password</label><input class="input" id="rs-pass2" type="password" autocomplete="new-password" /></div>
+      <button class="btn btn--primary" type="submit">Set password &amp; sign in</button>
+    </form>`;
+  attachStrengthMeter(document.getElementById("rs-pass"), document.getElementById("rs-meter"));
+  document.getElementById("resetForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const pass = document.getElementById("rs-pass").value;
+    if (pass.length < 10) return showAuthError("Password must be at least 10 characters.");
+    if (pass !== document.getElementById("rs-pass2").value) return showAuthError("Passwords do not match.");
+    try {
+      await Auth.reset(token, pass);
+      // Clear the ?reset= param, then log in with the new password.
+      history.replaceState(null, "", location.pathname);
+      showLogin();
+      const ok = document.createElement("div");
+      ok.className = "auth-ok";
+      ok.textContent = "Password updated — please sign in.";
+      document.getElementById("authForms").prepend(ok);
+    } catch (err) {
+      showAuthError(err.message);
+    }
+  };
+  document.getElementById("rs-pass").focus();
 }
 
 function applyRoleUI() {
@@ -1396,7 +1474,7 @@ async function renderUsers() {
   try {
     list = (await Users.list()).users;
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="5" class="dept-empty">${escapeHtml(err.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="dept-empty">${escapeHtml(err.message)}</td></tr>`;
     return;
   }
   tbody.innerHTML = list
@@ -1405,6 +1483,7 @@ async function renderUsers() {
       <tr>
         <td>${escapeHtml(u.displayName)}${u.id === meUser.id ? ' <span class="muted">(you)</span>' : ""}</td>
         <td class="mono">${escapeHtml(u.username)}</td>
+        <td>${escapeHtml(u.email || "")}</td>
         <td><span class="role-badge is-${u.role}">${u.role}</span></td>
         <td>${u.createdAt ? new Date(u.createdAt).toLocaleDateString() : ""}</td>
         <td>
@@ -1428,23 +1507,25 @@ function openUserModal(user) {
   const editing = !!user;
   const body = `
     <div class="field"><label>Name</label><input class="input" id="us-name" value="${escapeHtml(editing ? user.displayName : "")}" /></div>
+    <div class="field"><label>Email <span class="muted">(for password resets)</span></label><input class="input" id="us-email" type="email" value="${escapeHtml(editing ? user.email || "" : "")}" /></div>
     <div class="field"><label>Username</label><input class="input" id="us-user" value="${escapeHtml(editing ? user.username : "")}" ${editing ? "disabled" : ""} placeholder="letters, numbers, . _ -" /></div>
     <div class="field"><label>Role</label><select class="select" id="us-role">${roleOptions(editing ? user.role : "viewer")}</select></div>
     <div class="field"><label>${editing ? "Reset password (optional)" : "Password"}</label><input class="input" id="us-pass" type="password" autocomplete="new-password" placeholder="${editing ? "Leave blank to keep current" : "At least 10 characters"}" />${strengthMeterHtml("us-meter")}</div>`;
 
   openModal(editing ? "Edit User" : "Add User", body, (modal) => {
     const displayName = modal.querySelector("#us-name").value.trim();
+    const email = modal.querySelector("#us-email").value.trim();
     const role = modal.querySelector("#us-role").value;
     const password = modal.querySelector("#us-pass").value;
 
     let promise;
     if (editing) {
-      const payload = { displayName, role };
+      const payload = { displayName, email, role };
       if (password) payload.password = password;
       promise = Users.update(user.id, payload);
     } else {
       const username = modal.querySelector("#us-user").value.trim();
-      promise = Users.create({ username, password, displayName, role });
+      promise = Users.create({ username, password, displayName, email, role });
     }
 
     promise
@@ -1484,18 +1565,53 @@ function formatWhen(iso) {
   return sameDay ? `Today at ${time}` : `${d.toLocaleDateString()} ${time}`;
 }
 
+let auditEntries = []; // cache of fetched entries for client-side filtering
+
 async function renderActivity() {
   const host = document.getElementById("activityList");
   host.innerHTML = `<p class="activity__empty">Loading…</p>`;
-  let entries;
   try {
-    entries = (await AuditLog.list(200)).entries;
+    auditEntries = (await AuditLog.list(1000)).entries;
   } catch (err) {
     host.innerHTML = `<p class="activity__empty">${escapeHtml(err.message)}</p>`;
     return;
   }
+  // Populate the user filter from whoever appears in the log.
+  const sel = document.getElementById("actUser");
+  const prev = sel.value;
+  const users = [...new Map(auditEntries.map((e) => [e.username, e.displayName || e.username])).entries()];
+  sel.innerHTML =
+    `<option value="">All users</option>` +
+    users.map(([uname, dname]) => `<option value="${escapeHtml(uname)}">${escapeHtml(dname)}</option>`).join("");
+  sel.value = prev;
+  applyActivityFilters();
+}
+
+function filteredAudit() {
+  const q = document.getElementById("actSearch").value.trim().toLowerCase();
+  const who = document.getElementById("actUser").value;
+  const from = document.getElementById("actFrom").value; // yyyy-mm-dd or ""
+  const to = document.getElementById("actTo").value;
+  return auditEntries.filter((e) => {
+    if (who && e.username !== who) return false;
+    const day = (e.ts || "").slice(0, 10);
+    if (from && day < from) return false;
+    if (to && day > to) return false;
+    if (q) {
+      const hay = ((e.changes || []).join(" ") + " " + (e.displayName || "") + " " + (e.username || "")).toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function applyActivityFilters() {
+  const host = document.getElementById("activityList");
+  const entries = filteredAudit();
+  const count = document.getElementById("actCount");
+  count.textContent = `${entries.length} change set${entries.length === 1 ? "" : "s"}`;
   if (!entries.length) {
-    host.innerHTML = `<p class="activity__empty">No changes recorded yet.</p>`;
+    host.innerHTML = `<p class="activity__empty">${auditEntries.length ? "No entries match your filters." : "No changes recorded yet."}</p>`;
     return;
   }
   host.innerHTML =
@@ -1522,6 +1638,31 @@ async function renderActivity() {
     `</div>`;
 }
 
+// Export the currently-filtered activity as CSV (one row per change line).
+function exportAuditCsv() {
+  const entries = filteredAudit();
+  const esc = (v) => {
+    const s = String(v == null ? "" : v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const rows = [["Timestamp", "User", "Username", "Revision", "Change"]];
+  entries.forEach((e) => {
+    (e.changes || []).forEach((c) => {
+      rows.push([e.ts, e.displayName || "", e.username || "", e.rev, c]);
+    });
+  });
+  const csv = rows.map((r) => r.map(esc).join(",")).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `budget-activity-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 /* ---------- Boot ---------- */
 
 async function boot() {
@@ -1544,6 +1685,9 @@ async function boot() {
     await startApp();
     return;
   }
+  // A password-reset link takes priority over the normal login/setup flow.
+  const resetToken = new URLSearchParams(location.search).get("reset");
+  if (resetToken) return showReset(resetToken);
   if (status.setupRequired) return showSetup();
   if (!status.user) return showLogin();
   await onAuthenticated(status.user);

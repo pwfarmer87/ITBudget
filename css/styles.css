@@ -96,6 +96,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; }
   padding: 9px 11px; border-radius: 7px; margin-bottom: 14px;
 }
 .auth-foot { font-size: 12px; color: var(--muted); margin-top: 16px; text-align: center; }
+.auth-ok { background: var(--green-bg); color: var(--green); font-size: 13px; padding: 9px 11px; border-radius: 7px; margin-bottom: 14px; }
 
 /* Password strength meter */
 .pw-meter { margin-top: 8px; }
@@ -111,6 +112,14 @@ h1, h2, h3 { margin: 0; font-weight: 600; }
 /* Remember-me row */
 .remember-row { display: flex; align-items: center; gap: 8px; margin: 4px 0 14px; font-size: 13px; color: var(--text); cursor: pointer; }
 .remember-row input { width: auto; }
+
+/* Activity filter bar */
+.filter-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+.filter-bar .input, .filter-bar .select { width: auto; }
+.filter-bar #actSearch { flex: 1; min-width: 180px; }
+.filter-bar__date { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.filter-bar__date .input { padding: 5px 8px; }
+.filter-bar__count { margin-left: auto; font-size: 12px; }
 
 /* Activity feed */
 .activity { display: flex; flex-direction: column; }
@@ -262,6 +271,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; }
 }
 .category__title { font-size: 16px; font-weight: 600; }
 .category__num { font-size: 12px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.category__owner { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .category__totals { margin-left: auto; display: flex; gap: 22px; align-items: center; }
 .category__actions { display: flex; gap: 4px; }
 

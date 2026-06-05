@@ -18,6 +18,8 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const net = require("net");
+const tls = require("tls");
 
 const PORT = process.env.PORT || 3000;
 const ROOT = __dirname;
@@ -26,6 +28,8 @@ const BUDGET_FILE = path.join(DATA_DIR, "budget.json");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const SESSIONS_FILE = path.join(DATA_DIR, "sessions.json");
 const AUDIT_FILE = path.join(DATA_DIR, "audit.json");
+const RESETS_FILE = path.join(DATA_DIR, "resets.json");
+const RESET_TTL_MS = 1000 * 60 * 60; // password-reset link valid for 1 hour
 
 const COOKIE_SECURE = process.env.COOKIE_SECURE === "1";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24; // 1 day (non-"remember")
@@ -118,10 +122,24 @@ function verifyPassword(password, salt, hash) {
 /* ---------- Users ---------- */
 
 function publicUser(u) {
-  return { id: u.id, username: u.username, displayName: u.displayName, role: u.role, createdAt: u.createdAt };
+  return {
+    id: u.id,
+    username: u.username,
+    displayName: u.displayName,
+    email: u.email || "",
+    role: u.role,
+    createdAt: u.createdAt,
+  };
 }
 
-function createUser({ username, password, displayName, role }) {
+function normalizeEmail(email) {
+  email = String(email || "").trim();
+  if (!email) return ""; // email is optional
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw httpError(400, "Please enter a valid email address");
+  return email.toLowerCase();
+}
+
+function createUser({ username, password, displayName, role, email }) {
   const store = readUsers();
   username = String(username || "").trim().toLowerCase();
   if (!username) throw httpError(400, "Username is required");
@@ -137,6 +155,7 @@ function createUser({ username, password, displayName, role }) {
     id: "u-" + crypto.randomBytes(8).toString("hex"),
     username,
     displayName: String(displayName || username).trim(),
+    email: normalizeEmail(email),
     role,
     salt,
     hash,
@@ -158,7 +177,7 @@ function maybeBootstrapAdmin() {
   const p = process.env.ADMIN_PASSWORD;
   if (u && p) {
     try {
-      createUser({ username: u, password: p, displayName: u, role: "admin" });
+      createUser({ username: u, password: p, displayName: u, role: "admin", email: process.env.ADMIN_EMAIL });
       console.log(`Bootstrapped admin "${u}" from environment variables.`);
     } catch (err) {
       console.error("Failed to bootstrap admin from env:", err.message);
@@ -245,6 +264,190 @@ function clearFailures(username) {
   loginFails.delete(username);
 }
 
+/* ---------- Password-reset tokens ---------- */
+
+function readResets() {
+  const r = readJson(RESETS_FILE, null);
+  return r && r.tokens ? r : { tokens: {} };
+}
+function writeResets(store) {
+  writeJson(RESETS_FILE, store);
+}
+function pruneResets(store) {
+  const now = Date.now();
+  for (const [h, v] of Object.entries(store.tokens)) if (v.expires < now) delete store.tokens[h];
+}
+function createResetToken(userId) {
+  const store = readResets();
+  pruneResets(store);
+  const token = crypto.randomBytes(32).toString("hex");
+  store.tokens[hashToken(token)] = { userId, expires: Date.now() + RESET_TTL_MS };
+  writeResets(store);
+  return token;
+}
+// Look up a token's user without consuming it (so a failed password attempt
+// doesn't burn the token). Returns userId or null.
+function peekResetToken(token) {
+  if (!token) return null;
+  const store = readResets();
+  pruneResets(store);
+  writeResets(store);
+  const rec = store.tokens[hashToken(token)];
+  return rec ? rec.userId : null;
+}
+function deleteResetToken(token) {
+  if (!token) return;
+  const store = readResets();
+  delete store.tokens[hashToken(token)];
+  writeResets(store);
+}
+
+/* ---------- Email (zero-dependency SMTP client) ---------- */
+
+function smtpConfig() {
+  if (!process.env.SMTP_HOST) return null;
+  return {
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT || "587", 10),
+    secure: process.env.SMTP_SECURE === "1", // implicit TLS (e.g. port 465)
+    starttls: process.env.SMTP_STARTTLS !== "0", // attempt STARTTLS when offered
+    user: process.env.SMTP_USER || "",
+    pass: process.env.SMTP_PASS || "",
+    from: process.env.SMTP_FROM || process.env.SMTP_USER || "no-reply@localhost",
+  };
+}
+
+// Minimal SMTP delivery over net/tls. Resolves on success, rejects otherwise.
+function sendMailSMTP(cfg, mail) {
+  return new Promise((resolve, reject) => {
+    let socket = cfg.secure
+      ? tls.connect({ host: cfg.host, port: cfg.port, servername: cfg.host })
+      : net.connect({ host: cfg.host, port: cfg.port });
+
+    let buf = "";
+    let lines = [];
+    let waiter = null;
+    let done = false;
+
+    const fail = (err) => {
+      if (done) return;
+      done = true;
+      try { socket.destroy(); } catch {}
+      reject(err instanceof Error ? err : new Error(String(err)));
+    };
+
+    const onData = (chunk) => {
+      buf += chunk.toString("utf8");
+      let idx;
+      while ((idx = buf.indexOf("\r\n")) >= 0) {
+        const line = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        lines.push(line);
+        if (line.length >= 4 && line[3] === " ") {
+          const reply = { code: parseInt(line.slice(0, 3), 10), lines };
+          lines = [];
+          const w = waiter;
+          waiter = null;
+          if (w) w(reply);
+        }
+      }
+    };
+    const attach = (s) => {
+      socket = s;
+      s.on("data", onData);
+      s.on("error", fail);
+      s.on("end", () => { if (!done) fail(new Error("SMTP connection closed early")); });
+    };
+    const expect = () => new Promise((res) => { waiter = res; });
+    const send = (cmd) => socket.write(cmd + "\r\n");
+    const need = async (cmd, ...codes) => {
+      if (cmd !== null) send(cmd);
+      const r = await expect();
+      if (!codes.includes(r.code)) throw new Error(`SMTP error ${r.code}: ${r.lines.join(" ")}`);
+      return r;
+    };
+
+    attach(socket);
+
+    (async () => {
+      const ehloName = "itbudget";
+      await need(null, 220); // greeting
+      let ehlo = await need("EHLO " + ehloName, 250);
+
+      // STARTTLS upgrade (when not already on implicit TLS and offered/allowed)
+      const offersStarttls = ehlo.lines.some((l) => /STARTTLS/i.test(l));
+      if (!cfg.secure && cfg.starttls && offersStarttls) {
+        await need("STARTTLS", 220);
+        socket.removeListener("data", onData);
+        await new Promise((res, rej) => {
+          const upgraded = tls.connect({ socket, servername: cfg.host }, res);
+          upgraded.on("error", rej);
+          attach(upgraded);
+        });
+        ehlo = await need("EHLO " + ehloName, 250);
+      }
+
+      // AUTH (LOGIN or PLAIN) when credentials are provided
+      if (cfg.user) {
+        const mechs = ehlo.lines.find((l) => /AUTH/i.test(l)) || "";
+        if (/PLAIN/i.test(mechs)) {
+          const token = Buffer.from("\0" + cfg.user + "\0" + cfg.pass).toString("base64");
+          await need("AUTH PLAIN " + token, 235);
+        } else {
+          await need("AUTH LOGIN", 334);
+          await need(Buffer.from(cfg.user).toString("base64"), 334);
+          await need(Buffer.from(cfg.pass).toString("base64"), 235);
+        }
+      }
+
+      await need("MAIL FROM:<" + cfg.from + ">", 250);
+      await need("RCPT TO:<" + mail.to + ">", 250, 251);
+      await need("DATA", 354);
+
+      const headers =
+        `From: ${cfg.from}\r\nTo: ${mail.to}\r\nSubject: ${mail.subject}\r\n` +
+        `MIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n`;
+      const body = mail.text.replace(/\r?\n/g, "\r\n").replace(/\r\n\./g, "\r\n..");
+      await need(headers + body + "\r\n.", 250);
+      await need("QUIT", 221);
+      done = true;
+      try { socket.end(); } catch {}
+      resolve();
+    })().catch(fail);
+
+    socket.setTimeout(15000, () => fail(new Error("SMTP timeout")));
+  });
+}
+
+// Send a reset email if SMTP is configured; otherwise log the link to the
+// server console so the flow still works without an email server.
+async function deliverResetLink(user, link) {
+  const cfg = smtpConfig();
+  const text =
+    `Hi ${user.displayName || user.username},\n\n` +
+    `A password reset was requested for your IT Budget Tracker account.\n` +
+    `Open this link to choose a new password (valid for 1 hour):\n\n${link}\n\n` +
+    `If you didn't request this, you can ignore this email.\n`;
+  if (cfg && user.email) {
+    try {
+      await sendMailSMTP(cfg, { to: user.email, subject: "Reset your IT Budget Tracker password", text });
+      console.log(`Sent password-reset email to ${user.email}.`);
+      return;
+    } catch (err) {
+      console.error("Failed to send reset email:", err.message);
+    }
+  }
+  // Fallback (no SMTP configured, or send failed): log the link for an admin.
+  console.log(`[password reset] Link for ${user.username} <${user.email || "no email"}>: ${link}`);
+}
+
+function baseUrl(req) {
+  if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, "");
+  const proto = req.headers["x-forwarded-proto"] || (COOKIE_SECURE ? "https" : "http");
+  const host = req.headers["x-forwarded-host"] || req.headers.host || `localhost:${PORT}`;
+  return `${proto}://${host}`;
+}
+
 /* ---------- Audit log ---------- */
 
 function readAudit() {
@@ -265,7 +468,7 @@ function indexBudget(data) {
     (data.years || []).forEach((y) => {
       years[y.id] = { label: y.label, start: y.start, end: y.end };
       (y.categories || []).forEach((c) => {
-        cats[c.id] = { name: c.name, budgetNumber: c.budgetNumber, yearLabel: y.label };
+        cats[c.id] = { name: c.name, budgetNumber: c.budgetNumber, owner: c.owner || "", yearLabel: y.label };
         (c.lineItems || []).forEach((li) => {
           items[li.id] = {
             name: li.name,
@@ -310,6 +513,8 @@ function diffBudget(prev, next) {
       const a = A.cats[id], b = B.cats[id];
       if (a.name !== b.name) m.push(`Renamed category "${a.name}" to "${b.name}"`);
       if (a.budgetNumber !== b.budgetNumber) m.push(`Changed budget number of "${b.name}"`);
+      if (a.owner !== b.owner)
+        m.push(b.owner ? `Set owner of "${b.name}" to ${b.owner}` : `Cleared owner of "${b.name}"`);
     }
   for (const id in A.cats) if (!B.cats[id]) m.push(`Deleted category "${A.cats[id].name}" (${A.cats[id].yearLabel})`);
 
@@ -413,7 +618,13 @@ async function handleAuth(req, res, sub) {
   if (sub === "setup" && req.method === "POST") {
     if (readUsers().users.length) throw httpError(409, "Setup has already been completed");
     const body = await readJsonBody(req);
-    const user = createUser({ username: body.username, password: body.password, displayName: body.displayName, role: "admin" });
+    const user = createUser({
+      username: body.username,
+      password: body.password,
+      displayName: body.displayName,
+      email: body.email,
+      role: "admin",
+    });
     const { token, ttl } = createSession(user.id, !!body.remember);
     return sendJson(res, 200, { user: publicUser(user) }, { "Set-Cookie": sessionCookie(token, ttl / 1000, !!body.remember) });
   }
@@ -442,6 +653,38 @@ async function handleAuth(req, res, sub) {
   if (sub === "logout" && req.method === "POST") {
     destroyToken(parseCookies(req).sid);
     return sendJson(res, 200, { ok: true }, { "Set-Cookie": sessionCookie("", 0, false) });
+  }
+
+  // POST /api/auth/forgot — request a reset link (always responds generically)
+  if (sub === "forgot" && req.method === "POST") {
+    const body = await readJsonBody(req);
+    const id = String(body.usernameOrEmail || "").trim().toLowerCase();
+    const user = readUsers().users.find((u) => u.username === id || (u.email && u.email === id));
+    if (user) {
+      const token = createResetToken(user.id);
+      const link = `${baseUrl(req)}/?reset=${token}`;
+      await deliverResetLink(user, link);
+    }
+    // Don't reveal whether the account exists.
+    return sendJson(res, 200, { ok: true });
+  }
+
+  // POST /api/auth/reset — set a new password using a token
+  if (sub === "reset" && req.method === "POST") {
+    const body = await readJsonBody(req);
+    const token = String(body.token || "");
+    const userId = peekResetToken(token);
+    if (!userId) throw httpError(400, "This reset link is invalid or has expired.");
+    const store = readUsers();
+    const rec = store.users.find((u) => u.id === userId);
+    if (!rec) throw httpError(400, "This reset link is invalid or has expired.");
+    const pwErr = passwordError(body.newPassword, rec.username);
+    if (pwErr) throw httpError(400, pwErr); // token preserved so the user can retry
+    Object.assign(rec, hashPassword(String(body.newPassword)));
+    writeUsers(store);
+    deleteResetToken(token); // single-use: consume only on success
+    destroyUserSessions(rec.id); // sign out existing sessions after a reset
+    return sendJson(res, 200, { ok: true });
   }
 
   if (sub === "password" && req.method === "POST") {
@@ -473,7 +716,13 @@ async function handleUsers(req, res, idPart) {
 
   if (!idPart && req.method === "POST") {
     const body = await readJsonBody(req);
-    const user = createUser({ username: body.username, password: body.password, displayName: body.displayName, role: body.role });
+    const user = createUser({
+      username: body.username,
+      password: body.password,
+      displayName: body.displayName,
+      email: body.email,
+      role: body.role,
+    });
     return sendJson(res, 200, { user: publicUser(user) });
   }
 
@@ -489,6 +738,7 @@ async function handleUsers(req, res, idPart) {
       rec.role = body.role;
     }
     if (body.displayName !== undefined) rec.displayName = String(body.displayName).trim();
+    if (body.email !== undefined) rec.email = normalizeEmail(body.email);
     if (body.password !== undefined && body.password !== "") {
       const pwErr = passwordError(body.password, rec.username);
       if (pwErr) throw httpError(400, pwErr);

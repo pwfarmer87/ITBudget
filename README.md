@@ -25,6 +25,9 @@ Pre-loaded with the seven IT categories and their budget numbers:
 | Contingency | 1.1.65.6500.5730.0000 |
 | Hardware infrastructure | 1.1.65.6500.5625.0000 |
 
+Each category can have an **Owner** (the person responsible for that budget),
+shown in the category header and recorded in the activity log when it changes.
+
 Each category holds **Line Items** that track:
 - **Frequency** — As Needed, Monthly, Yearly, or Other
 - **Budgeted Amount** — what you planned to spend
@@ -124,12 +127,36 @@ otherwise the session ends when you close the browser. Sessions are persisted
 to disk (as token hashes) so **restarting the server no longer logs everyone
 out**.
 
+**Password reset by email.** Each account can have an email address. A
+**Forgot password?** link on the sign-in screen emails a one-time, one-hour
+reset link. The response is always generic ("if that account exists…") so it
+can't be used to probe for accounts, and using the link signs out that user's
+other sessions.
+
+Configure email by setting SMTP environment variables when starting the server:
+
+```bash
+SMTP_HOST=smtp.example.com SMTP_PORT=587 \
+SMTP_USER=apikey SMTP_PASS=secret \
+SMTP_FROM="IT Budget <no-reply@example.com>" \
+APP_URL=https://budget.example.com \
+node server.js
+```
+
+`SMTP_SECURE=1` uses implicit TLS (port 465); otherwise STARTTLS is used when
+the server offers it. **If SMTP isn't configured**, the reset flow still works —
+the reset link is written to the server log for an admin to relay.
+
 ### Activity log
 
 Every budget change is recorded — who changed what, and when. Signed-in users
 can review it in the **Activity** tab (e.g. *"Alice — Changed budget of 'M365'
 from $1,000 to $1,200"*). The log is stored in `data/audit.json` and capped to
 the most recent 2,000 entries.
+
+Filter the activity by **text, user, and date range**, and **Export CSV**
+(one row per change) for reporting or record-keeping — the export respects the
+current filters.
 
 > **Deploy securely:** run behind HTTPS (a reverse proxy is fine) and start the
 > server with `COOKIE_SECURE=1` so the session cookie is marked `Secure`.

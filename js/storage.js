@@ -342,6 +342,12 @@ const Auth = {
       body: JSON.stringify({ currentPassword, newPassword }),
     });
   },
+  forgot(usernameOrEmail) {
+    return apiJson("/api/auth/forgot", { method: "POST", body: JSON.stringify({ usernameOrEmail }) });
+  },
+  reset(token, newPassword) {
+    return apiJson("/api/auth/reset", { method: "POST", body: JSON.stringify({ token, newPassword }) });
+  },
 };
 
 const Users = {
