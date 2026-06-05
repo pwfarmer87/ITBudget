@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IT Budget Tracker — FY2027</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="app-header__brand">
+      <h1>IT Budget Tracker</h1>
+      <span class="app-header__fy" id="fyLabel">Fiscal Year 2027 · 6/1/2026 – 5/30/2027</span>
+    </div>
+    <div class="app-header__actions">
+      <button class="btn btn--ghost" id="exportBtn" title="Download a backup of all data">Export</button>
+      <button class="btn btn--ghost" id="importBtn" title="Restore data from a backup file">Import</button>
+      <input type="file" id="importFile" accept="application/json" hidden />
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tabs__tab is-active" data-tab="dashboard" role="tab">Dashboard</button>
+    <button class="tabs__tab" data-tab="budget" role="tab">Budget Tracker</button>
+    <button class="tabs__tab" data-tab="departments" role="tab">Other Departments</button>
+  </nav>
+
+  <main class="content">
+    <!-- DASHBOARD -->
+    <section class="panel is-active" id="panel-dashboard" role="tabpanel">
+      <div class="dash-cards" id="dashCards"></div>
+
+      <div class="dash-grid">
+        <div class="card">
+          <div class="card__head">
+            <h2>Spend by Category</h2>
+          </div>
+          <div class="card__body" id="dashByCategory"></div>
+        </div>
+        <div class="card">
+          <div class="card__head">
+            <h2>Attention Needed</h2>
+          </div>
+          <div class="card__body" id="dashAlerts"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- BUDGET TRACKER -->
+    <section class="panel" id="panel-budget" role="tabpanel">
+      <div class="toolbar">
+        <div class="toolbar__left">
+          <button class="btn btn--ghost" id="expandAllBtn">Expand all</button>
+          <button class="btn btn--ghost" id="collapseAllBtn">Collapse all</button>
+        </div>
+        <div class="toolbar__right">
+          <button class="btn btn--ghost" id="addCategoryBtn">+ Add Category</button>
+        </div>
+      </div>
+      <div id="categories"></div>
+    </section>
+
+    <!-- OTHER DEPARTMENTS -->
+    <section class="panel" id="panel-departments" role="tabpanel">
+      <div class="card">
+        <div class="card__head">
+          <h2>Other Department Budget Lines</h2>
+          <button class="btn btn--primary" id="addDeptBtn">+ Add Line</button>
+        </div>
+        <div class="card__body">
+          <p class="muted">A reference list of budget lines owned by other departments. No spend or budget tracking — just a place to record what exists and surface things you may need to be aware of.</p>
+          <div class="table-wrap">
+            <table class="dept-table">
+              <thead>
+                <tr>
+                  <th style="width:26%">Line Item</th>
+                  <th style="width:14%">Frequency</th>
+                  <th style="width:22%">Budget Number</th>
+                  <th>Note</th>
+                  <th style="width:60px"></th>
+                </tr>
+              </thead>
+              <tbody id="deptRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal host -->
+  <div class="modal-backdrop" id="modalBackdrop" hidden>
+    <div class="modal" id="modal" role="dialog" aria-modal="true"></div>
+  </div>
+
+  <script src="js/storage.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
