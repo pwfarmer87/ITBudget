@@ -1,0 +1,10 @@
+# Runtime budget data (lives on the server, not in version control)
+/data/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+*.swp

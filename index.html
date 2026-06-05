@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IT Budget Tracker — FY2027</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <!-- Auth gate: login / first-run setup -->
+  <div class="auth-overlay" id="authOverlay" hidden>
+    <div class="auth-card">
+      <h1>IT Budget Tracker</h1>
+      <div id="authForms"></div>
+    </div>
+  </div>
+
+  <header class="app-header">
+    <div class="app-header__brand">
+      <h1>IT Budget Tracker</h1>
+      <span class="app-header__fy" id="fyLabel">Fiscal Year 2027 · 6/1/2026 – 5/30/2027</span>
+    </div>
+    <div class="app-header__actions">
+      <label class="year-picker" title="Active fiscal year">
+        <span>Year</span>
+        <select class="select" id="yearSelect"></select>
+      </label>
+      <button class="btn btn--ghost editor-only" id="newYearBtn" title="Start a new fiscal year">+ New Year</button>
+      <button class="btn btn--ghost editor-only" id="editYearBtn" title="Edit this year's name and dates">Edit Year</button>
+      <span class="app-header__sep"></span>
+      <span class="sync" id="syncStatus" title="Sync status">●</span>
+      <button class="btn btn--ghost" id="exportBtn" title="Download a backup of all data">Export</button>
+      <button class="btn btn--ghost editor-only" id="importBtn" title="Restore data from a backup file">Import</button>
+      <input type="file" id="importFile" accept="application/json" hidden />
+      <span class="app-header__sep" id="userSep" hidden></span>
+      <div class="user-area" id="userArea" hidden>
+        <span class="user-area__name" id="userName"></span>
+        <span class="role-badge" id="roleBadge"></span>
+        <button class="btn btn--ghost btn--sm" id="accountBtn" title="Account settings">Account</button>
+        <button class="btn btn--ghost btn--sm" id="logoutBtn">Log out</button>
+      </div>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tabs__tab is-active" data-tab="dashboard" role="tab">Dashboard</button>
+    <button class="tabs__tab" data-tab="budget" role="tab">Budget Tracker</button>
+    <button class="tabs__tab" data-tab="reports" role="tab">Reports</button>
+    <button class="tabs__tab" data-tab="departments" role="tab">Other Departments</button>
+    <button class="tabs__tab auth-only" data-tab="activity" role="tab" hidden>Activity</button>
+    <button class="tabs__tab admin-only" data-tab="users" role="tab" hidden>Users</button>
+  </nav>
+
+  <div class="banner" id="updateBanner" hidden></div>
+
+  <main class="content">
+    <!-- DASHBOARD -->
+    <section class="panel is-active" id="panel-dashboard" role="tabpanel">
+      <div class="dash-cards" id="dashCards"></div>
+
+      <div class="dash-grid">
+        <div class="card">
+          <div class="card__head">
+            <h2>Spend by Category</h2>
+          </div>
+          <div class="card__body" id="dashByCategory"></div>
+        </div>
+        <div class="card">
+          <div class="card__head">
+            <h2>Attention Needed</h2>
+          </div>
+          <div class="card__body" id="dashAlerts"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- BUDGET TRACKER -->
+    <section class="panel" id="panel-budget" role="tabpanel">
+      <div class="toolbar">
+        <div class="toolbar__left">
+          <button class="btn btn--ghost" id="expandAllBtn">Expand all</button>
+          <button class="btn btn--ghost" id="collapseAllBtn">Collapse all</button>
+        </div>
+        <div class="toolbar__right">
+          <button class="btn btn--ghost editor-only" id="addCategoryBtn">+ Add Category</button>
+        </div>
+      </div>
+      <div id="categories"></div>
+    </section>
+
+    <!-- REPORTS -->
+    <section class="panel" id="panel-reports" role="tabpanel">
+      <div class="toolbar">
+        <div class="toolbar__left">
+          <h2 style="font-size:16px;">Year-over-Year Reporting</h2>
+        </div>
+        <div class="toolbar__right">
+          <label class="year-picker" title="Group report by">
+            <span>View</span>
+            <select class="select" id="reportView">
+              <option value="item">By Line Item</option>
+              <option value="category">By Category</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div class="dash-cards" id="reportCards"></div>
+
+      <div class="card">
+        <div class="card__head">
+          <h2 id="reportTableTitle">Budget Growth vs. Savings by Line Item</h2>
+          <span class="muted" id="reportLegend"></span>
+        </div>
+        <div class="card__body">
+          <p class="muted">Compares each item across fiscal years. <strong>Growth</strong> is the change in budgeted amount versus the prior year. <strong>Savings</strong> is budgeted minus actual (positive = under budget, negative = over).</p>
+          <div class="table-wrap" id="reportTableWrap"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- OTHER DEPARTMENTS -->
+    <section class="panel" id="panel-departments" role="tabpanel">
+      <div class="card">
+        <div class="card__head">
+          <h2>Other Department Budget Lines</h2>
+          <button class="btn btn--primary editor-only" id="addDeptBtn">+ Add Line</button>
+        </div>
+        <div class="card__body">
+          <p class="muted">A reference list of budget lines owned by other departments. No spend or budget tracking — just a place to record what exists and surface things you may need to be aware of.</p>
+          <div class="table-wrap">
+            <table class="dept-table">
+              <thead>
+                <tr>
+                  <th style="width:26%">Line Item</th>
+                  <th style="width:14%">Frequency</th>
+                  <th style="width:22%">Budget Number</th>
+                  <th>Note</th>
+                  <th style="width:60px"></th>
+                </tr>
+              </thead>
+              <tbody id="deptRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ACTIVITY / AUDIT LOG -->
+    <section class="panel" id="panel-activity" role="tabpanel">
+      <div class="card">
+        <div class="card__head">
+          <h2>Budget Activity</h2>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn--ghost" id="exportAuditBtn">Export CSV</button>
+            <button class="btn btn--ghost" id="refreshActivityBtn">Refresh</button>
+          </div>
+        </div>
+        <div class="card__body">
+          <p class="muted">A history of changes to the budget — who changed what, and when. Most recent first.</p>
+          <div class="filter-bar">
+            <input class="input" id="actSearch" placeholder="Search changes…" />
+            <select class="select" id="actUser"><option value="">All users</option></select>
+            <label class="filter-bar__date">From <input class="input" id="actFrom" type="date" /></label>
+            <label class="filter-bar__date">To <input class="input" id="actTo" type="date" /></label>
+            <span class="filter-bar__count muted" id="actCount"></span>
+          </div>
+          <div id="activityList"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- USERS (admin only) -->
+    <section class="panel" id="panel-users" role="tabpanel">
+      <div class="card">
+        <div class="card__head">
+          <h2>User Accounts</h2>
+          <button class="btn btn--primary" id="addUserBtn">+ Add User</button>
+        </div>
+        <div class="card__body">
+          <p class="muted">Manage who can sign in and what they can do. <strong>Admin</strong> manages users and edits the budget; <strong>Editor</strong> edits the budget; <strong>Viewer</strong> has read-only access.</p>
+          <div class="table-wrap">
+            <table class="dept-table">
+              <thead>
+                <tr>
+                  <th style="width:20%">Name</th>
+                  <th style="width:16%">Username</th>
+                  <th style="width:24%">Email</th>
+                  <th style="width:12%">Role</th>
+                  <th>Created</th>
+                  <th style="width:110px"></th>
+                </tr>
+              </thead>
+              <tbody id="userRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal host -->
+  <div class="modal-backdrop" id="modalBackdrop" hidden>
+    <div class="modal" id="modal" role="dialog" aria-modal="true"></div>
+  </div>
+
+  <script src="js/storage.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

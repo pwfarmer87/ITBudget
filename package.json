@@ -1,0 +1,12 @@
+{
+  "name": "it-budget-tracker",
+  "version": "1.0.0",
+  "description": "Shared IT department budget tracker with multi-year budgets and reporting.",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}
