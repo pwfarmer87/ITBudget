@@ -1,27 +1,19 @@
 /* storage.js — persistence, seed data, and migrations for the IT Budget Tracker.
  *
- * Data model (v2) supports multiple fiscal years:
- * {
- *   version: 2,
- *   activeYearId,
- *   years: [
- *     { id, label, start, end, categories: [
- *         { id, key, name, budgetNumber, lineItems: [
- *             { id, key, name, frequency, budgetedAmount, note, subitems: [
- *                 { id, name, actual, note }
- *             ]}
- *         ]}
- *     ]}
- *   ],
- *   otherDepartments: [ { id, lineItem, frequency, budgetNumber, note } ]
- * }
+ * When served by server.js, all data lives on the shared backend (one budget
+ * for the whole team) and this layer syncs to it: writes are debounced and
+ * pushed with an optimistic revision number; concurrent edits are detected as
+ * conflicts; light polling keeps multiple viewers in sync.
  *
- * `key` is a STABLE identifier preserved when a year is rolled forward, so the
- * same category / line item can be matched across years for reporting even if
- * it is later renamed. `id` is unique per record and never reused.
+ * When opened directly from disk (file://) with no backend reachable, it
+ * transparently falls back to the browser's localStorage as a single-user
+ * store, so the app still works standalone.
+ *
+ * Data model (v2) — see the migrate() notes below.
  */
 
-const STORAGE_KEY = "it-budget-tracker:v1";
+const STORAGE_KEY = "it-budget-tracker:v1"; // local cache / offline fallback
+const API = "/api/budget";
 
 const FREQUENCIES = ["As Needed", "Monthly", "Yearly", "Other"];
 
@@ -70,29 +62,19 @@ function defaultData() {
   };
 }
 
-/* Migrate older shapes forward so existing saved data is never lost. */
+/* Migrate older shapes forward so existing saved data is never lost.
+ * v1 stored a single year as top-level { fiscalYear, categories, otherDepartments }.
+ * v2 stores { version, activeYearId, years:[{id,label,start,end,categories}], otherDepartments }.
+ * `key` is a STABLE id preserved across yearly roll-forwards for reporting. */
 function migrate(data) {
   if (!data || typeof data !== "object") return defaultData();
 
-  // v1: single year stored as top-level { fiscalYear, categories, otherDepartments }
   if (!data.years && Array.isArray(data.categories)) {
     const fy = data.fiscalYear || { label: "Fiscal Year 2027", start: "2026-06-01", end: "2027-05-30" };
-    const year = {
-      id: uid(),
-      label: fy.label,
-      start: fy.start,
-      end: fy.end,
-      categories: data.categories,
-    };
-    data = {
-      version: 2,
-      activeYearId: year.id,
-      years: [year],
-      otherDepartments: data.otherDepartments || [],
-    };
+    const year = { id: uid(), label: fy.label, start: fy.start, end: fy.end, categories: data.categories };
+    data = { version: 2, activeYearId: year.id, years: [year], otherDepartments: data.otherDepartments || [] };
   }
 
-  // Ensure stable keys exist on every category and line item.
   (data.years || []).forEach((y) => {
     (y.categories || []).forEach((c) => {
       if (!c.key) c.key = genKey();
@@ -103,32 +85,160 @@ function migrate(data) {
     });
   });
 
-  if (!data.activeYearId && data.years && data.years.length) {
-    data.activeYearId = data.years[0].id;
-  }
+  if (!data.activeYearId && data.years && data.years.length) data.activeYearId = data.years[0].id;
   data.otherDepartments = data.otherDepartments || [];
   data.version = 2;
   return data;
 }
 
+/* ============================================================
+ * Sync engine
+ * ============================================================ */
+
 const Storage = {
-  load() {
+  _rev: 0, // server revision we are currently synced to
+  _online: false, // is a backend reachable?
+  _saving: false,
+  _dirty: false,
+  _timer: null,
+  _latest: null, // most recent data snapshot to push
+  _handlers: { status: () => {}, conflict: () => {}, remote: () => {} },
+
+  setHandlers(h) {
+    Object.assign(this._handlers, h);
+  },
+
+  _setStatus(s) {
+    this._handlers.status(s);
+  },
+
+  cacheLocal(data) {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) {
-        const data = defaultData();
-        this.save(data);
-        return data;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch {
+      /* storage may be unavailable on file:// — ignore */
+    }
+  },
+
+  async load() {
+    try {
+      const res = await fetch(API, { headers: tokenHeader() });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const env = await res.json();
+      this._online = true;
+      this._rev = env.rev || 0;
+
+      if (env.data) {
+        const d = migrate(env.data);
+        this.cacheLocal(d);
+        this._setStatus("synced");
+        return d;
       }
-      return migrate(JSON.parse(raw));
+
+      // Backend has no data yet — seed it.
+      const d = defaultData();
+      const put = await fetch(API, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...tokenHeader() },
+        body: JSON.stringify({ rev: this._rev, data: d }),
+      });
+      if (put.status === 200) {
+        this._rev = (await put.json()).rev;
+      } else if (put.status === 409) {
+        const e = await put.json();
+        this._rev = e.rev;
+        if (e.data) {
+          const sd = migrate(e.data);
+          this.cacheLocal(sd);
+          this._setStatus("synced");
+          return sd;
+        }
+      }
+      this.cacheLocal(d);
+      this._setStatus("synced");
+      return d;
     } catch (err) {
-      console.error("Failed to load data, starting fresh:", err);
+      // No backend (e.g. opened as a file) — fall back to local storage.
+      this._online = false;
+      this._setStatus("local");
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) return migrate(JSON.parse(raw));
+      } catch {
+        /* ignore */
+      }
       return defaultData();
     }
   },
 
+  // Called by the app on every mutation. Caches immediately, pushes (debounced).
   save(data) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    this._latest = data;
+    this.cacheLocal(data);
+    if (!this._online) return; // local-only mode: cache is the source of truth
+    this._dirty = true;
+    this._setStatus("saving");
+    if (!this._timer) this._timer = setTimeout(() => this._flush(), 400);
+  },
+
+  async _flush() {
+    this._timer = null;
+    if (this._saving) {
+      // A push is in flight; re-arm so the newest snapshot gets sent after.
+      this._timer = setTimeout(() => this._flush(), 200);
+      return;
+    }
+    if (!this._dirty) return;
+    this._saving = true;
+    this._dirty = false;
+    const snapshot = this._latest;
+    try {
+      const res = await fetch(API, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...tokenHeader() },
+        body: JSON.stringify({ rev: this._rev, data: snapshot }),
+      });
+      if (res.status === 200) {
+        this._rev = (await res.json()).rev;
+        this._setStatus(this._dirty ? "saving" : "synced");
+      } else if (res.status === 409) {
+        const env = await res.json();
+        this._rev = env.rev;
+        this._dirty = false;
+        this._setStatus("conflict");
+        this._handlers.conflict(env.data ? migrate(env.data) : null);
+      } else {
+        throw new Error("HTTP " + res.status);
+      }
+    } catch (err) {
+      this._online = false;
+      this._setStatus("local");
+    } finally {
+      this._saving = false;
+      if (this._dirty && this._online) this._timer = setTimeout(() => this._flush(), 200);
+    }
+  },
+
+  // Pull the latest from the server; used by polling. Returns data if the
+  // server has advanced beyond what we last saw, otherwise null.
+  async poll() {
+    if (!this._online || this._saving || this._dirty) return null;
+    try {
+      const res = await fetch(API, { headers: tokenHeader() });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const env = await res.json();
+      if ((env.rev || 0) !== this._rev && env.data) {
+        this._rev = env.rev;
+        const d = migrate(env.data);
+        this.cacheLocal(d);
+        return d;
+      }
+      return null;
+    } catch {
+      this._online = false;
+      this._setStatus("local");
+      return null;
+    }
   },
 
   export(data) {
@@ -164,3 +274,14 @@ const Storage = {
     });
   },
 };
+
+// Optional shared-secret support: set localStorage 'budget-token' to match the
+// server's BUDGET_TOKEN if the backend requires it.
+function tokenHeader() {
+  try {
+    const t = localStorage.getItem("budget-token");
+    return t ? { "x-budget-token": t } : {};
+  } catch {
+    return {};
+  }
+}

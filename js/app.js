@@ -1,6 +1,6 @@
 /* app.js — IT Budget Tracker application logic (multi-year). */
 
-let data = Storage.load();
+let data; // loaded asynchronously in boot()
 
 /* ---------- Year helpers ---------- */
 
@@ -1073,6 +1073,95 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-setupTabs();
-setupHeader();
-renderAll();
+/* ============================================================
+ * SYNC: status indicator, conflict/update banners, polling
+ * ============================================================ */
+
+function setSyncStatus(state) {
+  const el = document.getElementById("syncStatus");
+  const map = {
+    synced: ["is-synced", "Saved", "All changes saved to the shared server"],
+    saving: ["is-saving", "Saving…", "Saving to the shared server"],
+    local: ["is-local", "Local only", "No shared server — changes are saved in this browser only"],
+    conflict: ["is-conflict", "Conflict", "Another user changed the budget"],
+  };
+  const [cls, text, title] = map[state] || map.local;
+  el.className = "sync " + cls;
+  el.setAttribute("data-text", text);
+  el.title = title;
+}
+
+let bannerTimer = null;
+function showBanner(html, { conflict = false, actions = [], autoHideMs = 0 } = {}) {
+  const b = document.getElementById("updateBanner");
+  b.className = "banner" + (conflict ? " is-conflict" : "");
+  b.innerHTML = `<span>${html}</span><span class="banner__actions"></span>`;
+  const host = b.querySelector(".banner__actions");
+  actions.forEach((a) => {
+    const btn = document.createElement("button");
+    btn.className = "btn btn--sm";
+    btn.textContent = a.label;
+    btn.onclick = a.onClick;
+    host.appendChild(btn);
+  });
+  b.hidden = false;
+  if (bannerTimer) clearTimeout(bannerTimer);
+  if (autoHideMs) bannerTimer = setTimeout(hideBanner, autoHideMs);
+}
+function hideBanner() {
+  document.getElementById("updateBanner").hidden = true;
+}
+
+function onConflict(serverData) {
+  showBanner(
+    "This budget was just changed by someone else, so your most recent edit wasn't saved to the server.",
+    {
+      conflict: true,
+      actions: [
+        {
+          label: "Load latest",
+          onClick: () => {
+            if (serverData) {
+              data = serverData;
+              refreshShell();
+              renderAll();
+            }
+            hideBanner();
+          },
+        },
+        {
+          label: "Keep mine (overwrite)",
+          onClick: () => {
+            Storage.save(data); // _rev was advanced to the server's, so this now wins
+            hideBanner();
+          },
+        },
+      ],
+    }
+  );
+}
+
+function startPolling() {
+  setInterval(async () => {
+    // Don't yank the UI out from under an open dialog.
+    if (!document.getElementById("modalBackdrop").hidden) return;
+    const fresh = await Storage.poll();
+    if (fresh) {
+      data = fresh;
+      refreshShell();
+      renderAll();
+      showBanner("Budget updated by another user.", { autoHideMs: 4000 });
+    }
+  }, 10000);
+}
+
+async function boot() {
+  Storage.setHandlers({ status: setSyncStatus, conflict: onConflict });
+  data = await Storage.load();
+  setupTabs();
+  setupHeader();
+  renderAll();
+  startPolling();
+}
+
+boot();

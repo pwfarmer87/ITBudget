@@ -20,6 +20,7 @@
       <button class="btn btn--ghost" id="newYearBtn" title="Start a new fiscal year">+ New Year</button>
       <button class="btn btn--ghost" id="editYearBtn" title="Edit this year's name and dates">Edit Year</button>
       <span class="app-header__sep"></span>
+      <span class="sync" id="syncStatus" title="Sync status">●</span>
       <button class="btn btn--ghost" id="exportBtn" title="Download a backup of all data">Export</button>
       <button class="btn btn--ghost" id="importBtn" title="Restore data from a backup file">Import</button>
       <input type="file" id="importFile" accept="application/json" hidden />
@@ -32,6 +33,8 @@
     <button class="tabs__tab" data-tab="reports" role="tab">Reports</button>
     <button class="tabs__tab" data-tab="departments" role="tab">Other Departments</button>
   </nav>
+
+  <div class="banner" id="updateBanner" hidden></div>
 
   <main class="content">
     <!-- DASHBOARD -->

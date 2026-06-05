@@ -69,19 +69,51 @@ departments, including things you may need to be aware of.
 
 ## Running it
 
-Just open `index.html` in any modern browser.
+### Shared mode (whole team, one budget) — recommended
 
-If your browser restricts `localStorage` on `file://` URLs, serve the folder
-locally instead:
+Run the included zero-dependency Node server. Everyone who points their browser
+at it reads and writes **the same budget**.
 
 ```bash
-python3 -m http.server 8000
-# then visit http://localhost:8000
+node server.js          # or: npm start
+# then visit http://localhost:3000
 ```
+
+- **No dependencies, no build step, no database** — just Node 16+. Data is
+  stored on the server in `data/budget.json` (written atomically).
+- **Concurrent editing is safe.** Each save carries a revision number; if two
+  people edit at once, the second save is detected as a conflict instead of
+  silently overwriting, and you're offered **Load latest** or **Keep mine**.
+- A small **status dot** in the header shows *Saved / Saving… / Conflict /
+  Local only*. Open viewers auto-refresh every ~10s so everyone stays in sync.
+- Configure the port with `PORT` (e.g. `PORT=8080 node server.js`).
+
+To host it for the team, run it on any machine/VM/container they can reach
+(behind your normal reverse proxy/VPN). Keep `data/` on persistent storage and
+back it up — it holds the budget.
+
+#### Optional shared password
+
+Set `BUDGET_TOKEN` to require a shared secret:
+
+```bash
+BUDGET_TOKEN=our-secret node server.js
+```
+
+Then, in each browser once, run in the dev console:
+`localStorage.setItem('budget-token', 'our-secret')`. (For real internet-facing
+deployments, put it behind HTTPS and your existing SSO/reverse proxy.)
+
+### Standalone mode (single user, no server)
+
+Open `index.html` directly in a browser. With no backend reachable, the app
+automatically falls back to the browser's `localStorage` and works as a
+single-user tool. (Some browsers restrict `localStorage` on `file://` URLs; if
+so, use shared mode above.)
 
 ## Data & backups
 
-All data is stored in your browser's `localStorage`, so it stays on your
-machine. Use the **Export** button in the header to download a JSON backup
-(handy for moving between computers or committing a snapshot to git), and
-**Import** to restore one.
+In shared mode, data lives in `data/budget.json` on the server; in standalone
+mode it lives in your browser's `localStorage`. Either way, use the **Export**
+button in the header to download a JSON backup (handy for snapshots or moving
+between deployments) and **Import** to restore one.
