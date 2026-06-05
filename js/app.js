@@ -1022,6 +1022,7 @@ function setupTabs() {
       tab.classList.add("is-active");
       document.getElementById("panel-" + tab.dataset.tab).classList.add("is-active");
       if (tab.dataset.tab === "users") renderUsers();
+      if (tab.dataset.tab === "activity") renderActivity();
     });
   });
 }
@@ -1064,6 +1065,7 @@ function setupHeader() {
   document.getElementById("addUserBtn").onclick = () => openUserModal(null);
   document.getElementById("accountBtn").onclick = openAccountModal;
   document.getElementById("logoutBtn").onclick = doLogout;
+  document.getElementById("refreshActivityBtn").onclick = renderActivity;
 
   document.getElementById("expandAllBtn").onclick = () => {
     activeYear().categories.forEach((c) => c.lineItems.forEach((l) => expanded.add(l.id)));
@@ -1190,6 +1192,43 @@ function showAuthError(msg) {
   }
 }
 
+// Lightweight password strength heuristic (length + character variety).
+function passwordStrength(pw) {
+  pw = pw || "";
+  let s = 0;
+  if (pw.length >= 10) s++;
+  if (pw.length >= 14) s++;
+  let classes = 0;
+  if (/[a-z]/.test(pw)) classes++;
+  if (/[A-Z]/.test(pw)) classes++;
+  if (/[0-9]/.test(pw)) classes++;
+  if (/[^A-Za-z0-9]/.test(pw)) classes++;
+  if (classes >= 2) s++;
+  if (classes >= 3) s++;
+  const score = Math.min(s, 4);
+  const label = ["Very weak", "Weak", "Fair", "Good", "Strong"][score];
+  return { score, label };
+}
+
+// HTML for a meter element; pair with attachStrengthMeter(inputId, meterId).
+function strengthMeterHtml(meterId) {
+  return `<div class="pw-meter" id="${meterId}">
+      <div class="pw-meter__bar"><div class="pw-meter__fill s0"></div></div>
+      <div class="pw-meter__label">Use at least 10 characters with a mix of letters, numbers, or symbols.</div>
+    </div>`;
+}
+function attachStrengthMeter(inputEl, meterEl) {
+  if (!inputEl || !meterEl) return;
+  const fill = meterEl.querySelector(".pw-meter__fill");
+  const label = meterEl.querySelector(".pw-meter__label");
+  const update = () => {
+    const { score, label: text } = passwordStrength(inputEl.value);
+    fill.className = "pw-meter__fill s" + score;
+    if (inputEl.value) label.textContent = "Strength: " + text;
+  };
+  inputEl.addEventListener("input", update);
+}
+
 function showLogin() {
   const overlay = document.getElementById("authOverlay");
   overlay.hidden = false;
@@ -1199,6 +1238,7 @@ function showLogin() {
     <form id="loginForm">
       <div class="field"><label>Username</label><input class="input" id="lg-user" autocomplete="username" /></div>
       <div class="field"><label>Password</label><input class="input" id="lg-pass" type="password" autocomplete="current-password" /></div>
+      <label class="remember-row"><input type="checkbox" id="lg-remember" /> Remember me on this device</label>
       <button class="btn btn--primary" type="submit">Sign in</button>
     </form>`;
   document.getElementById("loginForm").onsubmit = async (e) => {
@@ -1206,7 +1246,8 @@ function showLogin() {
     try {
       const { user } = await Auth.login(
         document.getElementById("lg-user").value.trim(),
-        document.getElementById("lg-pass").value
+        document.getElementById("lg-pass").value,
+        document.getElementById("lg-remember").checked
       );
       await onAuthenticated(user);
     } catch (err) {
@@ -1225,21 +1266,23 @@ function showSetup() {
     <form id="setupForm">
       <div class="field"><label>Your name</label><input class="input" id="su-name" autocomplete="name" /></div>
       <div class="field"><label>Username</label><input class="input" id="su-user" autocomplete="username" /></div>
-      <div class="field"><label>Password</label><input class="input" id="su-pass" type="password" autocomplete="new-password" placeholder="At least 8 characters" /></div>
+      <div class="field"><label>Password</label><input class="input" id="su-pass" type="password" autocomplete="new-password" placeholder="At least 10 characters" />${strengthMeterHtml("su-meter")}</div>
       <div class="field"><label>Confirm password</label><input class="input" id="su-pass2" type="password" autocomplete="new-password" /></div>
       <button class="btn btn--primary" type="submit">Create admin &amp; continue</button>
     </form>
     <div class="auth-foot">This screen appears only once, on first launch.</div>`;
+  attachStrengthMeter(document.getElementById("su-pass"), document.getElementById("su-meter"));
   document.getElementById("setupForm").onsubmit = async (e) => {
     e.preventDefault();
     const pass = document.getElementById("su-pass").value;
-    if (pass.length < 8) return showAuthError("Password must be at least 8 characters.");
+    if (pass.length < 10) return showAuthError("Password must be at least 10 characters.");
     if (pass !== document.getElementById("su-pass2").value) return showAuthError("Passwords do not match.");
     try {
       const { user } = await Auth.setup({
         username: document.getElementById("su-user").value.trim(),
         password: pass,
         displayName: document.getElementById("su-name").value.trim(),
+        remember: true,
       });
       await onAuthenticated(user);
     } catch (err) {
@@ -1255,6 +1298,9 @@ function applyRoleUI() {
   });
   document.querySelectorAll(".admin-only").forEach((el) => {
     el.hidden = !isAdminUser;
+  });
+  document.querySelectorAll(".auth-only").forEach((el) => {
+    el.hidden = !meUser; // server-backed features (e.g. activity log)
   });
   const userArea = document.getElementById("userArea");
   const userSep = document.getElementById("userSep");
@@ -1311,13 +1357,13 @@ async function startApp() {
 function openAccountModal() {
   const body = `
     <div class="field"><label>Current password</label><input class="input" id="ac-cur" type="password" autocomplete="current-password" /></div>
-    <div class="field"><label>New password</label><input class="input" id="ac-new" type="password" autocomplete="new-password" placeholder="At least 8 characters" /></div>
+    <div class="field"><label>New password</label><input class="input" id="ac-new" type="password" autocomplete="new-password" placeholder="At least 10 characters" />${strengthMeterHtml("ac-meter")}</div>
     <div class="field"><label>Confirm new password</label><input class="input" id="ac-new2" type="password" autocomplete="new-password" /></div>`;
   openModal("Change Password", body, (modal) => {
     const cur = modal.querySelector("#ac-cur").value;
     const nw = modal.querySelector("#ac-new").value;
-    if (nw.length < 8) {
-      alert("New password must be at least 8 characters.");
+    if (nw.length < 10) {
+      alert("New password must be at least 10 characters.");
       return false;
     }
     if (nw !== modal.querySelector("#ac-new2").value) {
@@ -1332,6 +1378,7 @@ function openAccountModal() {
       .catch((err) => alert(err.message));
     return false; // keep open until the async call resolves
   });
+  attachStrengthMeter(document.getElementById("ac-new"), document.getElementById("ac-meter"));
 }
 
 /* ---------- User management (admin) ---------- */
@@ -1383,7 +1430,7 @@ function openUserModal(user) {
     <div class="field"><label>Name</label><input class="input" id="us-name" value="${escapeHtml(editing ? user.displayName : "")}" /></div>
     <div class="field"><label>Username</label><input class="input" id="us-user" value="${escapeHtml(editing ? user.username : "")}" ${editing ? "disabled" : ""} placeholder="letters, numbers, . _ -" /></div>
     <div class="field"><label>Role</label><select class="select" id="us-role">${roleOptions(editing ? user.role : "viewer")}</select></div>
-    <div class="field"><label>${editing ? "Reset password (optional)" : "Password"}</label><input class="input" id="us-pass" type="password" autocomplete="new-password" placeholder="${editing ? "Leave blank to keep current" : "At least 8 characters"}" /></div>`;
+    <div class="field"><label>${editing ? "Reset password (optional)" : "Password"}</label><input class="input" id="us-pass" type="password" autocomplete="new-password" placeholder="${editing ? "Leave blank to keep current" : "At least 10 characters"}" />${strengthMeterHtml("us-meter")}</div>`;
 
   openModal(editing ? "Edit User" : "Add User", body, (modal) => {
     const displayName = modal.querySelector("#us-name").value.trim();
@@ -1416,6 +1463,7 @@ function openUserModal(user) {
       .catch((err) => alert(err.message));
     return false; // keep modal open until the async call resolves
   });
+  attachStrengthMeter(document.getElementById("us-pass"), document.getElementById("us-meter"));
 }
 
 function deleteUser(user) {
@@ -1423,6 +1471,55 @@ function deleteUser(user) {
   Users.remove(user.id)
     .then(() => renderUsers())
     .catch((err) => alert(err.message));
+}
+
+/* ---------- Activity / audit log ---------- */
+
+function formatWhen(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return sameDay ? `Today at ${time}` : `${d.toLocaleDateString()} ${time}`;
+}
+
+async function renderActivity() {
+  const host = document.getElementById("activityList");
+  host.innerHTML = `<p class="activity__empty">Loading…</p>`;
+  let entries;
+  try {
+    entries = (await AuditLog.list(200)).entries;
+  } catch (err) {
+    host.innerHTML = `<p class="activity__empty">${escapeHtml(err.message)}</p>`;
+    return;
+  }
+  if (!entries.length) {
+    host.innerHTML = `<p class="activity__empty">No changes recorded yet.</p>`;
+    return;
+  }
+  host.innerHTML =
+    `<div class="activity">` +
+    entries
+      .map((e) => {
+        const name = e.displayName || e.username || "Unknown";
+        const initials = name.trim().slice(0, 2);
+        const changes = (e.changes || []).map((c) => `<li>${escapeHtml(c)}</li>`).join("");
+        return `
+        <div class="activity__item">
+          <div class="activity__avatar">${escapeHtml(initials)}</div>
+          <div class="activity__body">
+            <div class="activity__meta">
+              <span class="activity__who">${escapeHtml(name)}</span>
+              <span class="activity__when">${escapeHtml(formatWhen(e.ts))}</span>
+              <span class="activity__rev">rev ${escapeHtml(String(e.rev))}</span>
+            </div>
+            <ul class="activity__changes">${changes}</ul>
+          </div>
+        </div>`;
+      })
+      .join("") +
+    `</div>`;
 }
 
 /* ---------- Boot ---------- */

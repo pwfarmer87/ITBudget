@@ -114,10 +114,27 @@ session cookies). There are three roles:
 - Read-only users simply don't see the edit controls, and the server also
   enforces it (budget writes from a viewer are rejected).
 
+**Password policy & lockout.** New/changed passwords must be at least 10
+characters, mix character types, not contain the username, and not be a common
+password — enforced on the server, with a live strength meter in the UI. After
+5 failed logins an account is locked for 15 minutes.
+
+**Staying signed in.** Tick **Remember me** at login for a 30-day session;
+otherwise the session ends when you close the browser. Sessions are persisted
+to disk (as token hashes) so **restarting the server no longer logs everyone
+out**.
+
+### Activity log
+
+Every budget change is recorded — who changed what, and when. Signed-in users
+can review it in the **Activity** tab (e.g. *"Alice — Changed budget of 'M365'
+from $1,000 to $1,200"*). The log is stored in `data/audit.json` and capped to
+the most recent 2,000 entries.
+
 > **Deploy securely:** run behind HTTPS (a reverse proxy is fine) and start the
 > server with `COOKIE_SECURE=1` so the session cookie is marked `Secure`.
-> Sessions are held in memory, so restarting the server signs everyone out
-> (they just log back in); accounts and budget data persist on disk.
+> Accounts, sessions, the budget, and the activity log all persist in `data/` —
+> keep it on durable storage and back it up.
 
 ### Standalone mode (single user, no server)
 

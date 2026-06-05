@@ -47,6 +47,7 @@
     <button class="tabs__tab" data-tab="budget" role="tab">Budget Tracker</button>
     <button class="tabs__tab" data-tab="reports" role="tab">Reports</button>
     <button class="tabs__tab" data-tab="departments" role="tab">Other Departments</button>
+    <button class="tabs__tab auth-only" data-tab="activity" role="tab" hidden>Activity</button>
     <button class="tabs__tab admin-only" data-tab="users" role="tab" hidden>Users</button>
   </nav>
 
@@ -141,6 +142,20 @@
               <tbody id="deptRows"></tbody>
             </table>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ACTIVITY / AUDIT LOG -->
+    <section class="panel" id="panel-activity" role="tabpanel">
+      <div class="card">
+        <div class="card__head">
+          <h2>Budget Activity</h2>
+          <button class="btn btn--ghost" id="refreshActivityBtn">Refresh</button>
+        </div>
+        <div class="card__body">
+          <p class="muted">A history of changes to the budget — who changed what, and when. Most recent first.</p>
+          <div id="activityList"></div>
         </div>
       </div>
     </section>

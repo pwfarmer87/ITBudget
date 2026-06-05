@@ -327,8 +327,11 @@ const Auth = {
   setup(payload) {
     return apiJson("/api/auth/setup", { method: "POST", body: JSON.stringify(payload) });
   },
-  login(username, password) {
-    return apiJson("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) });
+  login(username, password, remember) {
+    return apiJson("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password, remember: !!remember }),
+    });
   },
   logout() {
     return apiJson("/api/auth/logout", { method: "POST", body: "{}" });
@@ -356,5 +359,11 @@ const Users = {
   },
   remove(id) {
     return apiJson("/api/users/" + encodeURIComponent(id), { method: "DELETE" });
+  },
+};
+
+const AuditLog = {
+  list(limit) {
+    return apiJson("/api/audit" + (limit ? "?limit=" + encodeURIComponent(limit) : ""));
   },
 };

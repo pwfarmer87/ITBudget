@@ -97,6 +97,39 @@ h1, h2, h3 { margin: 0; font-weight: 600; }
 }
 .auth-foot { font-size: 12px; color: var(--muted); margin-top: 16px; text-align: center; }
 
+/* Password strength meter */
+.pw-meter { margin-top: 8px; }
+.pw-meter__bar { height: 5px; background: #eef1f6; border-radius: 4px; overflow: hidden; }
+.pw-meter__fill { height: 100%; width: 0; border-radius: 4px; transition: width .15s, background .15s; }
+.pw-meter__fill.s0 { width: 12%; background: var(--red); }
+.pw-meter__fill.s1 { width: 35%; background: #ef8c2e; }
+.pw-meter__fill.s2 { width: 60%; background: var(--amber); }
+.pw-meter__fill.s3 { width: 82%; background: #65a30d; }
+.pw-meter__fill.s4 { width: 100%; background: var(--green); }
+.pw-meter__label { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+/* Remember-me row */
+.remember-row { display: flex; align-items: center; gap: 8px; margin: 4px 0 14px; font-size: 13px; color: var(--text); cursor: pointer; }
+.remember-row input { width: auto; }
+
+/* Activity feed */
+.activity { display: flex; flex-direction: column; }
+.activity__item { display: flex; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--border); }
+.activity__item:last-child { border-bottom: none; }
+.activity__avatar {
+  flex: 0 0 32px; width: 32px; height: 32px; border-radius: 50%;
+  background: #ede9fe; color: #6d28d9; font-weight: 600; font-size: 13px;
+  display: flex; align-items: center; justify-content: center; text-transform: uppercase;
+}
+.activity__body { flex: 1; min-width: 0; }
+.activity__meta { font-size: 13px; margin-bottom: 4px; }
+.activity__who { font-weight: 600; }
+.activity__when { color: var(--muted); margin-left: 6px; font-size: 12px; }
+.activity__rev { color: var(--muted); font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin-left: 6px; }
+.activity__changes { margin: 0; padding-left: 18px; }
+.activity__changes li { font-size: 13px; color: #374151; margin: 1px 0; }
+.activity__empty { color: var(--muted); padding: 18px 4px; }
+
 /* Read-only hint */
 .readonly-pill {
   display: inline-block; font-size: 11px; color: var(--amber);
