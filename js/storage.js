@@ -1,6 +1,25 @@
-/* storage.js — persistence + seed data for the IT Budget Tracker.
- * Data lives in the browser's localStorage. Export/Import lets you
- * move a backup between machines or keep it in version control. */
+/* storage.js — persistence, seed data, and migrations for the IT Budget Tracker.
+ *
+ * Data model (v2) supports multiple fiscal years:
+ * {
+ *   version: 2,
+ *   activeYearId,
+ *   years: [
+ *     { id, label, start, end, categories: [
+ *         { id, key, name, budgetNumber, lineItems: [
+ *             { id, key, name, frequency, budgetedAmount, note, subitems: [
+ *                 { id, name, actual, note }
+ *             ]}
+ *         ]}
+ *     ]}
+ *   ],
+ *   otherDepartments: [ { id, lineItem, frequency, budgetNumber, note } ]
+ * }
+ *
+ * `key` is a STABLE identifier preserved when a year is rolled forward, so the
+ * same category / line item can be matched across years for reporting even if
+ * it is later renamed. `id` is unique per record and never reused.
+ */
 
 const STORAGE_KEY = "it-budget-tracker:v1";
 
@@ -21,18 +40,75 @@ function uid() {
   return "id-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
 }
 
-function defaultData() {
+function genKey() {
+  return "k-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+}
+
+function seedYear() {
   return {
-    version: 1,
-    fiscalYear: { label: "Fiscal Year 2027", start: "2026-06-01", end: "2027-05-30" },
+    id: uid(),
+    label: "Fiscal Year 2027",
+    start: "2026-06-01",
+    end: "2027-05-30",
     categories: SEED_CATEGORIES.map((c) => ({
       id: uid(),
+      key: genKey(),
       name: c.name,
       budgetNumber: c.budgetNumber,
       lineItems: [],
     })),
+  };
+}
+
+function defaultData() {
+  const year = seedYear();
+  return {
+    version: 2,
+    activeYearId: year.id,
+    years: [year],
     otherDepartments: [],
   };
+}
+
+/* Migrate older shapes forward so existing saved data is never lost. */
+function migrate(data) {
+  if (!data || typeof data !== "object") return defaultData();
+
+  // v1: single year stored as top-level { fiscalYear, categories, otherDepartments }
+  if (!data.years && Array.isArray(data.categories)) {
+    const fy = data.fiscalYear || { label: "Fiscal Year 2027", start: "2026-06-01", end: "2027-05-30" };
+    const year = {
+      id: uid(),
+      label: fy.label,
+      start: fy.start,
+      end: fy.end,
+      categories: data.categories,
+    };
+    data = {
+      version: 2,
+      activeYearId: year.id,
+      years: [year],
+      otherDepartments: data.otherDepartments || [],
+    };
+  }
+
+  // Ensure stable keys exist on every category and line item.
+  (data.years || []).forEach((y) => {
+    (y.categories || []).forEach((c) => {
+      if (!c.key) c.key = genKey();
+      (c.lineItems || []).forEach((li) => {
+        if (!li.key) li.key = genKey();
+        li.subitems = li.subitems || [];
+      });
+    });
+  });
+
+  if (!data.activeYearId && data.years && data.years.length) {
+    data.activeYearId = data.years[0].id;
+  }
+  data.otherDepartments = data.otherDepartments || [];
+  data.version = 2;
+  return data;
 }
 
 const Storage = {
@@ -44,7 +120,7 @@ const Storage = {
         this.save(data);
         return data;
       }
-      return JSON.parse(raw);
+      return migrate(JSON.parse(raw));
     } catch (err) {
       console.error("Failed to load data, starting fresh:", err);
       return defaultData();
@@ -74,10 +150,11 @@ const Storage = {
       reader.onload = () => {
         try {
           const parsed = JSON.parse(reader.result);
-          if (!parsed || !Array.isArray(parsed.categories)) {
+          const migrated = migrate(parsed);
+          if (!Array.isArray(migrated.years) || !migrated.years.length) {
             throw new Error("File does not look like a budget export.");
           }
-          resolve(parsed);
+          resolve(migrated);
         } catch (err) {
           reject(err);
         }

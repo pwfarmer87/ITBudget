@@ -1,6 +1,28 @@
-/* app.js — IT Budget Tracker application logic. */
+/* app.js — IT Budget Tracker application logic (multi-year). */
 
 let data = Storage.load();
+
+/* ---------- Year helpers ---------- */
+
+function activeYear() {
+  return data.years.find((y) => y.id === data.activeYearId) || data.years[0];
+}
+
+// Years sorted oldest -> newest (by start date, falling back to label/order).
+function yearsChrono() {
+  return [...data.years].sort((a, b) => {
+    const sa = a.start || "";
+    const sb = b.start || "";
+    if (sa && sb) return sa.localeCompare(sb);
+    return data.years.indexOf(a) - data.years.indexOf(b);
+  });
+}
+
+function fmtDate(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return `${Number(m)}/${Number(d)}/${y}`;
+}
 
 /* ---------- Calculation helpers ---------- */
 
@@ -24,8 +46,8 @@ function categoryTotals(cat) {
   );
 }
 
-function grandTotals() {
-  return data.categories.reduce(
+function yearTotals(year) {
+  return year.categories.reduce(
     (acc, cat) => {
       const t = categoryTotals(cat);
       acc.budgeted += t.budgeted;
@@ -36,11 +58,22 @@ function grandTotals() {
   );
 }
 
+function grandTotals() {
+  return yearTotals(activeYear());
+}
+
 /* ---------- Formatting ---------- */
 
 function money(n) {
   const v = Number(n) || 0;
   return v.toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
+
+// Signed money for deltas/savings, e.g. +$1,200 / −$300.
+function signedMoney(n) {
+  const v = Number(n) || 0;
+  const sign = v > 0 ? "+" : v < 0 ? "−" : "";
+  return sign + money(Math.abs(v));
 }
 
 function pct(part, whole) {
@@ -67,12 +100,13 @@ function commit() {
  * ============================================================ */
 
 function renderDashboard() {
+  const year = activeYear();
   const g = grandTotals();
   const remaining = g.budgeted - g.actual;
   const spentPct = pct(g.actual, g.budgeted);
 
   const cards = [
-    { label: "Total Budgeted", value: money(g.budgeted), sub: data.fiscalYear.label },
+    { label: "Total Budgeted", value: money(g.budgeted), sub: year.label },
     { label: "Total Actual", value: money(g.actual), sub: `${spentPct}% of budget spent` },
     {
       label: "Budget Remaining",
@@ -82,8 +116,8 @@ function renderDashboard() {
     },
     {
       label: "Line Items",
-      value: String(data.categories.reduce((n, c) => n + c.lineItems.length, 0)),
-      sub: `${data.categories.length} categories`,
+      value: String(year.categories.reduce((n, c) => n + c.lineItems.length, 0)),
+      sub: `${year.categories.length} categories`,
     },
   ];
 
@@ -99,7 +133,7 @@ function renderDashboard() {
     .join("");
 
   // Spend by category bars
-  const byCat = data.categories
+  const byCat = year.categories
     .map((cat) => {
       const t = categoryTotals(cat);
       const p = pct(t.actual, t.budgeted);
@@ -124,7 +158,7 @@ function renderDashboard() {
 
   // Alerts
   const alerts = [];
-  data.categories.forEach((cat) => {
+  year.categories.forEach((cat) => {
     const t = categoryTotals(cat);
     if (t.budgeted && t.actual > t.budgeted) {
       alerts.push({
@@ -161,12 +195,13 @@ const expanded = new Set();
 
 function renderBudget() {
   const host = document.getElementById("categories");
-  if (!data.categories.length) {
+  const year = activeYear();
+  if (!year.categories.length) {
     host.innerHTML = `<p class="muted">No categories yet. Use "Add Category" to begin.</p>`;
     return;
   }
 
-  host.innerHTML = data.categories.map(renderCategory).join("");
+  host.innerHTML = year.categories.map(renderCategory).join("");
   bindBudgetEvents();
 }
 
@@ -307,8 +342,6 @@ function onBudgetAction(e) {
     case "toggle":
       toggleSubitems(el.dataset.li);
       break;
-    case "add-cat":
-      break;
     case "edit-cat":
       openCategoryModal(el.dataset.cat);
       break;
@@ -363,13 +396,13 @@ function onQuickAddSub(e) {
   renderAll();
 }
 
-/* ---------- Lookups ---------- */
+/* ---------- Lookups (scoped to the active year) ---------- */
 
 function findCategory(catId) {
-  return data.categories.find((c) => c.id === catId);
+  return activeYear().categories.find((c) => c.id === catId);
 }
 function findLineItem(liId) {
-  for (const c of data.categories) {
+  for (const c of activeYear().categories) {
     const li = c.lineItems.find((l) => l.id === liId);
     if (li) return li;
   }
@@ -382,7 +415,8 @@ function deleteCategory(catId) {
   const cat = findCategory(catId);
   if (!cat) return;
   if (!confirm(`Delete category "${cat.name}" and all its line items?`)) return;
-  data.categories = data.categories.filter((c) => c.id !== catId);
+  const year = activeYear();
+  year.categories = year.categories.filter((c) => c.id !== catId);
   commit();
   renderAll();
 }
@@ -464,7 +498,7 @@ function openCategoryModal(catId) {
       cat.name = name;
       cat.budgetNumber = num;
     } else {
-      data.categories.push({ id: uid(), name, budgetNumber: num, lineItems: [] });
+      activeYear().categories.push({ id: uid(), key: genKey(), name, budgetNumber: num, lineItems: [] });
     }
     commit();
     renderAll();
@@ -506,7 +540,7 @@ function openLineItemModal(catId, liId) {
     if (li) {
       Object.assign(li, payload);
     } else {
-      cat.lineItems.push({ id: uid(), ...payload, subitems: [] });
+      cat.lineItems.push({ id: uid(), key: genKey(), ...payload, subitems: [] });
     }
     commit();
     renderAll();
@@ -545,6 +579,331 @@ function openSubitemModal(liId, subId) {
     commit();
     renderAll();
   });
+}
+
+/* ============================================================
+ * YEAR MANAGEMENT
+ * ============================================================ */
+
+function renderYearSelect() {
+  const sel = document.getElementById("yearSelect");
+  sel.innerHTML = yearsChrono()
+    .map((y) => `<option value="${y.id}" ${y.id === data.activeYearId ? "selected" : ""}>${escapeHtml(y.label)}</option>`)
+    .join("");
+}
+
+function syncFyLabel() {
+  const y = activeYear();
+  const range = y.start && y.end ? ` · ${fmtDate(y.start)} – ${fmtDate(y.end)}` : "";
+  document.getElementById("fyLabel").textContent = `${y.label}${range}`;
+}
+
+// Suggest the next year's label and dates by incrementing the most recent year.
+function suggestNextYear() {
+  const latest = yearsChrono().slice(-1)[0];
+  const addYear = (iso) => {
+    if (!iso) return "";
+    const [y, m, d] = iso.split("-");
+    return `${Number(y) + 1}-${m}-${d}`;
+  };
+  const nextLabel = latest
+    ? latest.label.replace(/\d{4}/, (m) => String(Number(m) + 1))
+    : "Fiscal Year";
+  return {
+    label: latest ? nextLabel : "Fiscal Year",
+    start: latest ? addYear(latest.start) : "",
+    end: latest ? addYear(latest.end) : "",
+    source: latest ? latest.id : "",
+  };
+}
+
+// Deep-copy a year's categories/line items, preserving stable keys, resetting
+// actuals (subitems) to empty. Budgets optionally carried forward.
+function carryForwardCategories(sourceYear, copyBudgets) {
+  return sourceYear.categories.map((cat) => ({
+    id: uid(),
+    key: cat.key,
+    name: cat.name,
+    budgetNumber: cat.budgetNumber,
+    lineItems: cat.lineItems.map((li) => ({
+      id: uid(),
+      key: li.key,
+      name: li.name,
+      frequency: li.frequency,
+      budgetedAmount: copyBudgets ? (Number(li.budgetedAmount) || 0) : 0,
+      note: li.note || "",
+      subitems: [],
+    })),
+  }));
+}
+
+function openNewYearModal() {
+  const s = suggestNextYear();
+  const sourceOpts = yearsChrono()
+    .map((y) => `<option value="${y.id}" ${y.id === s.source ? "selected" : ""}>${escapeHtml(y.label)}</option>`)
+    .join("");
+  const body = `
+    <div class="field">
+      <label>Fiscal Year Name</label>
+      <input class="input" id="f-label" value="${escapeHtml(s.label)}" placeholder="e.g. Fiscal Year 2028" />
+    </div>
+    <div class="field__row">
+      <div class="field"><label>Start Date</label><input class="input" id="f-start" type="date" value="${s.start}" /></div>
+      <div class="field"><label>End Date</label><input class="input" id="f-end" type="date" value="${s.end}" /></div>
+    </div>
+    <div class="field">
+      <label>Carry forward setup from</label>
+      <select class="select" id="f-source">
+        <option value="">Start empty (seven default categories)</option>
+        ${sourceOpts}
+      </select>
+    </div>
+    <div class="field">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" id="f-copybudget" checked style="width:auto;" />
+        Copy last year's budgeted amounts as a starting point
+      </label>
+    </div>`;
+  openModal("New Fiscal Year", body, (modal) => {
+    const label = modal.querySelector("#f-label").value.trim();
+    if (!label) return false;
+    const sourceId = modal.querySelector("#f-source").value;
+    const copyBudgets = modal.querySelector("#f-copybudget").checked;
+    const sourceYear = sourceId ? data.years.find((y) => y.id === sourceId) : null;
+
+    const newYear = {
+      id: uid(),
+      label,
+      start: modal.querySelector("#f-start").value,
+      end: modal.querySelector("#f-end").value,
+      categories: sourceYear
+        ? carryForwardCategories(sourceYear, copyBudgets)
+        : seedYear().categories,
+    };
+    data.years.push(newYear);
+    data.activeYearId = newYear.id;
+    commit();
+    refreshShell();
+    renderAll();
+  });
+}
+
+function openEditYearModal() {
+  const y = activeYear();
+  const canDelete = data.years.length > 1;
+  const body = `
+    <div class="field">
+      <label>Fiscal Year Name</label>
+      <input class="input" id="f-label" value="${escapeHtml(y.label)}" />
+    </div>
+    <div class="field__row">
+      <div class="field"><label>Start Date</label><input class="input" id="f-start" type="date" value="${y.start || ""}" /></div>
+      <div class="field"><label>End Date</label><input class="input" id="f-end" type="date" value="${y.end || ""}" /></div>
+    </div>
+    ${canDelete ? `<div class="field"><button class="btn btn--danger" id="f-delete">Delete this fiscal year</button></div>` : ""}`;
+  openModal("Edit Fiscal Year", body, (modal) => {
+    const label = modal.querySelector("#f-label").value.trim();
+    if (!label) return false;
+    y.label = label;
+    y.start = modal.querySelector("#f-start").value;
+    y.end = modal.querySelector("#f-end").value;
+    commit();
+    refreshShell();
+    renderAll();
+  });
+
+  const delBtn = document.getElementById("f-delete");
+  if (delBtn) {
+    delBtn.onclick = () => {
+      if (!confirm(`Delete "${y.label}" and all of its data? This cannot be undone.`)) return;
+      data.years = data.years.filter((yr) => yr.id !== y.id);
+      data.activeYearId = yearsChrono().slice(-1)[0].id;
+      commit();
+      document.getElementById("modalBackdrop").hidden = true;
+      document.getElementById("modal").innerHTML = "";
+      refreshShell();
+      renderAll();
+    };
+  }
+}
+
+/* ============================================================
+ * REPORTS — budget growth vs. savings across years
+ * ============================================================ */
+
+// Build a cross-year model keyed by stable category/line-item keys.
+function buildReportModel() {
+  const years = yearsChrono();
+  // categoryKey -> { name, budgetNumber, items: Map(itemKey -> { name, perYear: {yearId:{budgeted,actual}} }) , perYear }
+  const cats = new Map();
+
+  years.forEach((year) => {
+    year.categories.forEach((cat) => {
+      if (!cats.has(cat.key)) {
+        cats.set(cat.key, { key: cat.key, name: cat.name, budgetNumber: cat.budgetNumber, items: new Map(), perYear: {} });
+      }
+      const cm = cats.get(cat.key);
+      // Most recent year wins for display name.
+      cm.name = cat.name;
+      cm.budgetNumber = cat.budgetNumber;
+      const ct = categoryTotals(cat);
+      cm.perYear[year.id] = { budgeted: ct.budgeted, actual: ct.actual };
+
+      cat.lineItems.forEach((li) => {
+        if (!cm.items.has(li.key)) {
+          cm.items.set(li.key, { key: li.key, name: li.name, perYear: {} });
+        }
+        const im = cm.items.get(li.key);
+        im.name = li.name;
+        im.perYear[year.id] = { budgeted: Number(li.budgetedAmount) || 0, actual: lineItemActual(li) };
+      });
+    });
+  });
+
+  return { years, cats };
+}
+
+// Growth between the two most recent years in which an entity has data.
+function computeGrowth(perYear, years) {
+  const present = years.filter((y) => perYear[y.id]);
+  if (present.length < 2) return null;
+  const last = perYear[present[present.length - 1].id].budgeted;
+  const prev = perYear[present[present.length - 2].id].budgeted;
+  const delta = last - prev;
+  const pctChange = prev ? (delta / prev) * 100 : null;
+  return { delta, pctChange };
+}
+
+function growthCell(growth) {
+  if (!growth) return `<td class="num muted">—</td>`;
+  const cls = growth.delta > 0 ? "delta-up" : growth.delta < 0 ? "delta-down" : "muted";
+  const arrow = growth.delta > 0 ? "▲" : growth.delta < 0 ? "▼" : "";
+  const pctTxt = growth.pctChange == null ? "" : ` (${growth.pctChange > 0 ? "+" : ""}${growth.pctChange.toFixed(1)}%)`;
+  return `<td class="num ${cls}">${arrow} ${signedMoney(growth.delta)}<span class="report-sub">${pctTxt}</span></td>`;
+}
+
+function savingsCell(cell) {
+  if (!cell) return `<td class="num muted year-group">—</td><td class="num muted">—</td><td class="num muted">—</td>`;
+  const savings = cell.budgeted - cell.actual;
+  const sCls = savings > 0 ? "pos" : savings < 0 ? "neg" : "";
+  return `<td class="num year-group">${money(cell.budgeted)}</td><td class="num">${money(cell.actual)}</td><td class="num ${sCls}">${signedMoney(savings)}</td>`;
+}
+
+function renderReports() {
+  const view = document.getElementById("reportView").value;
+  const { years, cats } = buildReportModel();
+
+  document.getElementById("reportTableTitle").textContent =
+    view === "category" ? "Budget Growth vs. Savings by Category" : "Budget Growth vs. Savings by Line Item";
+
+  // Summary cards: per-year totals + latest-year growth/savings.
+  const yearCards = years.map((y) => {
+    const t = yearTotals(y);
+    return { label: y.label, budgeted: t.budgeted, actual: t.actual };
+  });
+  let cardsHtml = "";
+  if (years.length) {
+    const latest = yearCards[yearCards.length - 1];
+    const prev = yearCards.length > 1 ? yearCards[yearCards.length - 2] : null;
+    const growth = prev ? latest.budgeted - prev.budgeted : null;
+    const growthPct = prev && prev.budgeted ? ((latest.budgeted - prev.budgeted) / prev.budgeted) * 100 : null;
+    const savings = latest.budgeted - latest.actual;
+    cardsHtml = [
+      { label: "Years Tracked", value: String(years.length), sub: `${years[0].label} → ${years[years.length - 1].label}` },
+      {
+        label: `${latest.label} Budget`,
+        value: money(latest.budgeted),
+        sub: growth == null ? "First year" : `${growth >= 0 ? "▲" : "▼"} ${signedMoney(growth)}${growthPct == null ? "" : ` (${growthPct >= 0 ? "+" : ""}${growthPct.toFixed(1)}%)`} vs prior`,
+        cls: growth == null ? "" : growth > 0 ? "is-over" : "is-good",
+      },
+      { label: `${latest.label} Actual`, value: money(latest.actual), sub: `${pct(latest.actual, latest.budgeted)}% of budget` },
+      {
+        label: `${latest.label} Savings`,
+        value: signedMoney(savings),
+        sub: savings >= 0 ? "Under budget" : "Over budget",
+        cls: savings >= 0 ? "is-good" : "is-over",
+      },
+    ]
+      .map(
+        (c) => `<div class="stat"><div class="stat__label">${c.label}</div><div class="stat__value ${c.cls || ""}">${c.value}</div><div class="stat__sub">${c.sub}</div></div>`
+      )
+      .join("");
+  }
+  document.getElementById("reportCards").innerHTML = cardsHtml;
+
+  if (years.length < 1) {
+    document.getElementById("reportTableWrap").innerHTML = `<p class="report-empty">No fiscal years yet.</p>`;
+    return;
+  }
+
+  // Build table header: Item/Category | [per year: Budgeted, Actual, Savings] | Growth
+  const yearHeadCols = years
+    .map(
+      (y) => `<th class="num year-group" colspan="3">${escapeHtml(y.label)}</th>`
+    )
+    .join("");
+  const yearSubCols = years
+    .map(() => `<th class="num year-group subhead">Budget</th><th class="num subhead">Actual</th><th class="num subhead">Savings</th>`)
+    .join("");
+
+  const leftHead = view === "category" ? "Category" : "Line Item";
+  const thead = `
+    <thead>
+      <tr>
+        <th class="txt" rowspan="2">${leftHead}</th>
+        ${yearHeadCols}
+        <th class="num" rowspan="2">Budget Growth<div class="report-sub">latest vs prior yr</div></th>
+      </tr>
+      <tr>${yearSubCols}</tr>
+    </thead>`;
+
+  let bodyRows = "";
+
+  if (view === "category") {
+    cats.forEach((cm) => {
+      const cells = years.map((y) => savingsCell(cm.perYear[y.id])).join("");
+      const growth = growthCell(computeGrowth(cm.perYear, years));
+      bodyRows += `<tr><td class="txt item-name">${escapeHtml(cm.name)}<div class="report-sub">${escapeHtml(cm.budgetNumber || "")}</div></td>${cells}${growth}</tr>`;
+    });
+  } else {
+    cats.forEach((cm) => {
+      // Category subtotal row
+      const catCells = years.map((y) => savingsCell(cm.perYear[y.id])).join("");
+      const catGrowth = growthCell(computeGrowth(cm.perYear, years));
+      bodyRows += `<tr class="cat-row"><td class="txt">${escapeHtml(cm.name)}</td>${catCells}${catGrowth}</tr>`;
+      if (cm.items.size === 0) {
+        bodyRows += `<tr><td class="txt muted" colspan="${years.length * 3 + 2}" style="padding-left:24px;">No line items.</td></tr>`;
+      }
+      cm.items.forEach((im) => {
+        const cells = years.map((y) => savingsCell(im.perYear[y.id])).join("");
+        const growth = growthCell(computeGrowth(im.perYear, years));
+        bodyRows += `<tr><td class="txt item-name" style="padding-left:24px;">${escapeHtml(im.name)}</td>${cells}${growth}</tr>`;
+      });
+    });
+  }
+
+  // Footer: grand totals per year
+  const footCells = years
+    .map((y) => {
+      const t = yearTotals(y);
+      const savings = t.budgeted - t.actual;
+      const sCls = savings > 0 ? "pos" : savings < 0 ? "neg" : "";
+      return `<td class="num year-group">${money(t.budgeted)}</td><td class="num">${money(t.actual)}</td><td class="num ${sCls}">${signedMoney(savings)}</td>`;
+    })
+    .join("");
+  const totalGrowth = growthCell(
+    computeGrowth(
+      Object.fromEntries(years.map((y) => [y.id, yearTotals(y)])),
+      years
+    )
+  );
+  const tfoot = `<tfoot><tr><td class="txt">All Categories</td>${footCells}${totalGrowth}</tr></tfoot>`;
+
+  document.getElementById("reportTableWrap").innerHTML =
+    `<table class="report-table">${thead}<tbody>${bodyRows}</tbody>${tfoot}</table>`;
+
+  document.getElementById("reportLegend").innerHTML =
+    `<span class="pos">■</span> saved &nbsp; <span class="neg">■</span> over`;
 }
 
 /* ============================================================
@@ -637,7 +996,14 @@ function deleteDept(id) {
 function renderAll() {
   renderDashboard();
   renderBudget();
+  renderReports();
   renderDepartments();
+}
+
+// Refresh chrome that depends on the active/known years.
+function refreshShell() {
+  renderYearSelect();
+  syncFyLabel();
 }
 
 function setupTabs() {
@@ -652,8 +1018,17 @@ function setupTabs() {
 }
 
 function setupHeader() {
-  document.getElementById("fyLabel").textContent =
-    `${data.fiscalYear.label} · 6/1/2026 – 5/30/2027`;
+  refreshShell();
+
+  document.getElementById("yearSelect").onchange = (e) => {
+    data.activeYearId = e.target.value;
+    commit();
+    syncFyLabel();
+    renderAll();
+  };
+  document.getElementById("newYearBtn").onclick = openNewYearModal;
+  document.getElementById("editYearBtn").onclick = openEditYearModal;
+  document.getElementById("reportView").onchange = renderReports;
 
   document.getElementById("exportBtn").onclick = () => Storage.export(data);
   document.getElementById("importBtn").onclick = () =>
@@ -666,6 +1041,7 @@ function setupHeader() {
       if (!confirm("Importing will replace your current data. Continue?")) return;
       data = imported;
       commit();
+      refreshShell();
       renderAll();
     } catch (err) {
       alert("Could not import file: " + err.message);
@@ -678,7 +1054,7 @@ function setupHeader() {
   document.getElementById("addDeptBtn").onclick = () => openDeptModal(null);
 
   document.getElementById("expandAllBtn").onclick = () => {
-    data.categories.forEach((c) => c.lineItems.forEach((l) => expanded.add(l.id)));
+    activeYear().categories.forEach((c) => c.lineItems.forEach((l) => expanded.add(l.id)));
     renderBudget();
   };
   document.getElementById("collapseAllBtn").onclick = () => {

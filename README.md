@@ -41,6 +41,27 @@ renewal):
   line item, or **Expand all / Collapse all** to scan categories and line items
   without the detail.
 
+### Multiple Fiscal Years
+The header has a **Year** selector plus **New Year** and **Edit Year** buttons.
+- **New Year** rolls the prior year's categories and line items forward (it
+  suggests the next year's name and dates automatically), copies last year's
+  **budgeted amounts** as a starting point so you can adjust them, and resets
+  actuals to empty for the fresh year. You can also start a year empty with the
+  seven default categories, or zero out the carried budgets.
+- Each year keeps its own budgets and actuals. Categories and line items carry a
+  stable identity across years so the same item can be tracked over time even if
+  you rename it.
+- **Edit Year** renames a year, changes its dates, or deletes it.
+
+### Reports
+Year-over-year reporting, viewable **By Line Item** or **By Category**:
+- Summary cards: years tracked, latest year's budget with **year-over-year
+  growth** ($ and %), latest actual, and latest **savings**.
+- A table showing, for every year, each item's **Budget**, **Actual**, and
+  **Savings** (`budgeted − actual` — green when under budget, red when over),
+  plus a **Budget Growth** column comparing the latest year's budget to the
+  prior year. Category subtotals and a grand-total footer are included.
+
 ### Other Departments
 A simple reference list — no spend or budget tracking. Record a **Line Item**,
 **Frequency**, **Budget Number**, and **Note** for budget lines owned by other

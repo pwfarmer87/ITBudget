@@ -13,6 +13,13 @@
       <span class="app-header__fy" id="fyLabel">Fiscal Year 2027 · 6/1/2026 – 5/30/2027</span>
     </div>
     <div class="app-header__actions">
+      <label class="year-picker" title="Active fiscal year">
+        <span>Year</span>
+        <select class="select" id="yearSelect"></select>
+      </label>
+      <button class="btn btn--ghost" id="newYearBtn" title="Start a new fiscal year">+ New Year</button>
+      <button class="btn btn--ghost" id="editYearBtn" title="Edit this year's name and dates">Edit Year</button>
+      <span class="app-header__sep"></span>
       <button class="btn btn--ghost" id="exportBtn" title="Download a backup of all data">Export</button>
       <button class="btn btn--ghost" id="importBtn" title="Restore data from a backup file">Import</button>
       <input type="file" id="importFile" accept="application/json" hidden />
@@ -22,6 +29,7 @@
   <nav class="tabs" role="tablist">
     <button class="tabs__tab is-active" data-tab="dashboard" role="tab">Dashboard</button>
     <button class="tabs__tab" data-tab="budget" role="tab">Budget Tracker</button>
+    <button class="tabs__tab" data-tab="reports" role="tab">Reports</button>
     <button class="tabs__tab" data-tab="departments" role="tab">Other Departments</button>
   </nav>
 
@@ -58,6 +66,37 @@
         </div>
       </div>
       <div id="categories"></div>
+    </section>
+
+    <!-- REPORTS -->
+    <section class="panel" id="panel-reports" role="tabpanel">
+      <div class="toolbar">
+        <div class="toolbar__left">
+          <h2 style="font-size:16px;">Year-over-Year Reporting</h2>
+        </div>
+        <div class="toolbar__right">
+          <label class="year-picker" title="Group report by">
+            <span>View</span>
+            <select class="select" id="reportView">
+              <option value="item">By Line Item</option>
+              <option value="category">By Category</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div class="dash-cards" id="reportCards"></div>
+
+      <div class="card">
+        <div class="card__head">
+          <h2 id="reportTableTitle">Budget Growth vs. Savings by Line Item</h2>
+          <span class="muted" id="reportLegend"></span>
+        </div>
+        <div class="card__body">
+          <p class="muted">Compares each item across fiscal years. <strong>Growth</strong> is the change in budgeted amount versus the prior year. <strong>Savings</strong> is budgeted minus actual (positive = under budget, negative = over).</p>
+          <div class="table-wrap" id="reportTableWrap"></div>
+        </div>
+      </div>
     </section>
 
     <!-- OTHER DEPARTMENTS -->

@@ -42,7 +42,10 @@ h1, h2, h3 { margin: 0; font-weight: 600; }
 }
 .app-header__brand h1 { font-size: 20px; }
 .app-header__fy { color: var(--muted); font-size: 13px; }
-.app-header__actions { display: flex; gap: 8px; }
+.app-header__actions { display: flex; gap: 8px; align-items: center; }
+.app-header__sep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
+.year-picker { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.year-picker .select { width: auto; padding: 6px 8px; font-size: 13px; color: var(--text); }
 
 /* Tabs */
 .tabs {
@@ -269,6 +272,25 @@ textarea.input { resize: vertical; min-height: 60px; }
 .dept-table td.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .dept-table tr:last-child td { border-bottom: none; }
 .dept-empty { color: var(--muted); padding: 18px 12px; }
+
+/* Reports table */
+.report-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.report-table th, .report-table td { padding: 9px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.report-table thead th { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); text-align: right; background: #f7f9fc; position: sticky; top: 0; }
+.report-table th.txt, .report-table td.txt { text-align: left; }
+.report-table td.num, .report-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.report-table .year-group { border-left: 1px solid var(--border); }
+.report-table tr.cat-row td { background: #fafbfd; font-weight: 600; }
+.report-table tr.cat-row td.txt { color: var(--text); }
+.report-table .item-name { font-weight: 500; }
+.report-table tfoot td { font-weight: 600; border-top: 2px solid var(--border); }
+.pos { color: var(--green); }
+.neg { color: var(--red); }
+.delta-up { color: var(--amber); }
+.delta-down { color: var(--green); }
+.report-sub { font-size: 11px; color: var(--muted); }
+.report-empty { color: var(--muted); padding: 18px 4px; }
+.report-table th.subhead { font-size: 10px; }
 
 /* Modal */
 .modal-backdrop {
